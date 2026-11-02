@@ -50,6 +50,7 @@ inline constexpr const char* kSectionOrder[] = {
     "player",  // durable identity: player_guid, player_skin, nameplate, nick_color
     "ui",      // fonts, scale, panels
     "voice",   // devices, gates, volumes
+    "sync",    // coverage knobs of the world-state lanes (the record poll's patterns)
     "dev",     // dev/test flags -- deliberately last, out of casual sight
 };
 inline constexpr size_t kSectionCount = sizeof(kSectionOrder) / sizeof(kSectionOrder[0]);

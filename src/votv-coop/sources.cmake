@@ -115,6 +115,7 @@ set(VOTVCOOP_SOURCES
     src/coop/interactables/atv_runtime_mirror.cpp
     src/coop/interactables/atv_spawn_park.cpp
     src/coop/interactables/atv_condition_sync.cpp
+    src/coop/interactables/atv_condition_intent.cpp
     src/coop/interactables/atv_corrector.cpp
     src/coop/interactables/atv_hit_guard.cpp
     src/coop/interactables/atv_damage_gate.cpp
@@ -127,6 +128,8 @@ set(VOTVCOOP_SOURCES
     src/coop/items/order_queue_sync.cpp
     src/coop/world/firefly_sync.cpp
     src/coop/world/spawn_authority.cpp
+    src/coop/world/atv_start_pair.cpp
+    src/coop/world/atv_respawn.cpp
     src/coop/world/explosion_sync.cpp
     src/coop/world/explosion_request.cpp
     src/coop/world/explosion_request_atv.cpp
@@ -210,6 +213,7 @@ set(VOTVCOOP_SOURCES
     src/coop/props/prop_lifecycle.cpp
     src/coop/props/prop_food_state.cpp
     src/coop/props/prop_record_refresh.cpp
+    src/coop/props/prop_record_poll.cpp
     src/coop/props/pack_trash_intent.cpp
     src/coop/props/prop_drop_intent.cpp
     src/coop/props/hit_target_prop.cpp

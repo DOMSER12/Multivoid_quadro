@@ -18,6 +18,7 @@
 #pragma warning(disable: 4100 4127 4191 4244 4245 4267 4310 4324 4458)
 #include <steam/steamnetworkingsockets.h>
 #pragma warning(pop)
+#include <steam/isteamnetworkingutils.h>  // SteamNetworkingIPAddr::ToString is inline HERE, not in steamnetworkingsockets.h -- without it the call emits an external to a symbol no TU is obliged to emit (link_kind.cpp's pattern)
 
 #include <cstring>
 

@@ -283,6 +283,30 @@ host re-publishes. The far side applies it through the prop's `loadData`, whose 
 the reel case; the drive box's look follows its name, which a record does not carry, so the
 receiver re-derives it from `opened` (`coop/props/prop_record_refresh`).
 
+### The record poll: the in-place state of the patterned save-keepers
+
+The two classes above are the only ones whose mutating verb this build knows by name. Everything
+else that keeps state in its record changed in place with no one told -- the dug hole a seed went
+into, the plant that grew from it, the mining frame a GPU or a cooler was seated into -- so the
+hole closed again, the plant vanished and the part fell out of the frame on every peer but the
+one that touched it. `coop/props/prop_record_poll` closes that class of divergence without
+knowing any class or verb name: each second, a budgeted slice (24 records a pass, a rotating
+cursor) of the keyed props whose CLASS NAME contains one of the configurable patterns
+(`sync.poll_patterns`, default the farming and mining families: `hole`, `plant`,
+`seed`, `miner`, `frame`, `garden`, `soil`, `dig`, `farm`, `seedp`) has its save record captured
+and its VALUES hashed -- class, key, transform and the signal rows are left out on purpose, pose
+is the prop lanes' and a photo must not cost a walk. A hash that moved republishes the record
+through the record lane's own `Publish` -- the host broadcasts, a client sends an intent the host
+validates, applies and re-publishes canonically -- and the first sight of a key is baseline only,
+so a join reports nothing.
+
+Which classes the patterns cover is not a guess kept in the dark: once per world, after the index
+settles, the lane logs the matched classes and, beside them, the CENSUS -- every save-keeping
+(keyed, `getData`-overriding) class the patterns do NOT name. One line from that log pasted back
+is one pattern added to the row, no rebuild. The pass is the host's and the client's both, paced
+at one second, and the row `sync.prop_record_poll` turns it off if a pattern ever matches
+something it must not.
+
 ### Notebook
 
 A notebook's pages are `text` on the prop, which its own `getData` and `loadData` save, so the
@@ -475,7 +499,7 @@ prop resolves.
 | the stick | `coop/props/prop_stick_sync` |
 | a prop under a hook's drive or a broom's push | `coop/props/prop_drive_host` (the host's set and stream), `coop/props/prop_drive_stream` (the receiver), `coop/items/hook_prop_claim` (the hook lane feeding it), `coop/items/hook_constraint` (the tie itself, host-only), `coop/items/broom_push` (the broom's push feeding it) |
 | containers | `coop/props/container_contents_sync`, `coop/items/save_record_wire`, `coop/interactables/interactable_sync` |
-| a record that changes in place | `coop/props/prop_record_refresh` (the drive box, the reel case) |
+| a record that changes in place | `coop/props/prop_record_refresh` (the drive box, the reel case), `coop/props/prop_record_poll` (the patterned save-keepers: the holes, the plants, the mining frame) |
 | notebook sync | `coop/interactables/notebook_sync`, `coop/props/prop_save_data`, `ue_wrap/actors/notebook` |
 | the pocket blip | `coop/items/inventory_pickup_sync` |
 | the join | `coop/props/prop_snapshot`, `coop/props/snapshot_census`, `coop/props/join_membership_sweep`, `coop/props/unresolved_pose_ledger` |

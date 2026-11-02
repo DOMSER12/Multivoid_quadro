@@ -6,6 +6,8 @@
 #include "coop/session/subsystems.h"
 
 #include "coop/element/object_scan_hub.h"  // the shared pass over the object index
+#include "coop/interactables/atv_condition_intent.h"  // a non-syncer's refuel/repair, reported
+#include "coop/world/atv_start_pair.h"  // the host's second ATV at the start of a game
 #include "coop/world/balance_sync.h"
 #include "coop/interactables/comp_sync.h"
 #include "coop/interactables/console_state_sync.h"
@@ -45,6 +47,7 @@
 #include "coop/props/container_contents_sync.h"  // the world-container GObjStack slice
 #include "coop/props/container_view_close.h"  // a view into a container ends where the player's reach does
 #include "coop/props/prop_food_state.h"  // the food family's live state and who authors it
+#include "coop/props/prop_record_poll.h"  // the patterned save-keepers' records, refreshed by poll
 #include "coop/props/prop_record_refresh.h"  // a drive box or reel case republishes its record in place
 #include "coop/interactables/signal_catch_sync.h"
 #include "coop/interactables/signal_sync.h"
@@ -275,6 +278,7 @@ void Install(coop::net::Session& session) {
     coop::floppybox_sync::Install(&session);  // the disc crate stack
     coop::props::container_contents_sync::Install(&session);  // container contents
     coop::props::prop_record_refresh::Install(&session);  // drive box + reel case republish their own record
+    coop::prop_record_poll::SetSession(&session);  // the patterned classes' records, refreshed by poll
     coop::props::prop_food_state::Install();  // the food family claims its own live state off the record lane
     coop::desk_cursor_sync::Install(&session);  // coords-panel live-cursor unreliable motion stream (interpolated mirror)
     coop::desk_input_sync::Install(&session);  // the claim-free field-granular desk input lane
@@ -468,6 +472,8 @@ DisconnectStats DisconnectAll() {
     coop::fuse_tower_ops::OnDisconnect();
     coop::fuse_tower_rows::OnDisconnect();
     coop::atv_sync::OnDisconnect();
+    coop::atv_condition_intent::OnDisconnect();  // the report counters and the pace buckets (the beliefs went with the entries)
+    coop::atv_start_pair::OnSessionEnd();  // the spawn budget and its marks, owed to the next session in this world
     coop::drone_sync::OnDisconnect();
     coop::order_sync::OnDisconnect();
     coop::coingun_sync::OnDisconnect();  // dump the lane summary + drop the sold-set, the barrier queue and the cached gun
@@ -499,6 +505,7 @@ DisconnectStats DisconnectAll() {
     coop::console_state_sync::OnDisconnect();
     coop::signal_catch_sync::OnDisconnect();
     coop::prop_save_data::OnDisconnect();
+    coop::prop_record_poll::OnDisconnect();  // the hashes, the cursor and the census marks
     coop::laptop_sync::OnDisconnect();
     coop::laptop_tab::OnDisconnect();
     coop::portable_pc_lid::OnDisconnect();
@@ -601,6 +608,8 @@ void TickGameplay(coop::net::Session& session, bool isConnected, bool isHost,
     { PP::Scope _s{PP::Bucket::Interactable}; ue_wrap::ScopedWalkTimer _w{"sync:towers"}; coop::fuse_tower_ops::Tick(); coop::fuse_tower_rows::Tick(); }  // the towers: the gates settle, the host's ops and rows, a client's panels  // the panel's and the grid's gates settle; what came before the panel or the generators resolved is taken
     coop::dish_calib_sync::Tick();  // settle the precision lane's three watches
     { PP::Scope _s{PP::Bucket::Interactable}; ue_wrap::ScopedWalkTimer _w{"sync:atv"}; coop::atv_sync::Tick(); }  // ATV: the host judges its own seat and grab, a client asks the host; the syncer streams its pose (host+client)
+    { PP::Scope _s{PP::Bucket::Interactable}; coop::atv_condition_intent::Tick(); }  // a non-syncer's local refuel/repair/tire state, reported to the host and merged
+    { PP::Scope _s{PP::Bucket::Interactable}; coop::atv_start_pair::Tick(session, fleeing); }  // the host tops a one-ATV world up to two once it settles; the ATV lane's announce carries the second rig to every peer
     { PP::Scope _s{PP::Bucket::Interactable}; ue_wrap::ScopedWalkTimer _w{"sync:drone"}; coop::drone_sync::Tick(); }  // delivery drone: host streams transform / client suppresses tick + mirrors
     { PP::Scope _s{PP::Bucket::Interactable}; ue_wrap::ScopedWalkTimer _w{"sync:turbine"}; coop::turbine_sync::Tick(); }  // wind turbines: host ~1 Hz driver-float poll / client deferred-apply retry
     { PP::Scope _s{PP::Bucket::Interactable}; ue_wrap::ScopedWalkTimer _w{"sync:alarm"}; coop::alarm_sync::Tick(); }  // base radar alarm: 1 Hz active-bit poll BOTH roles (host broadcasts transitions; client forwards local ones)
@@ -622,6 +631,7 @@ void TickGameplay(coop::net::Session& session, bool isConnected, bool isHost,
     { PP::Scope _s{PP::Bucket::Interactable}; ue_wrap::ScopedWalkTimer _w{"sync:console_state"}; coop::console_state_sync::Tick(); }  // signal-catcher: host sky poll / client mirror sweep / desk + dish owner streams
     { PP::Scope _s{PP::Bucket::Interactable}; ue_wrap::ScopedWalkTimer _w{"sync:signal_catch"}; coop::signal_catch_sync::Tick(); }  // the catch and cleared detectors, 1 Hz
     { PP::Scope _s{PP::Bucket::Interactable}; ue_wrap::ScopedWalkTimer _w{"sync:propsave"}; coop::prop_save_data::Drive(); }  // budgeted park applies + the 1 Hz assembler sweep
+    { PP::Scope _s{PP::Bucket::Interactable}; coop::prop_record_poll::Tick(); }  // the patterned save-keepers (holes, plants, the mining frame): a moved record republishes
     { PP::Scope _s{PP::Bucket::Interactable}; ue_wrap::ScopedWalkTimer _w{"sync:laptop"}; coop::laptop_sync::Tick(); }  // PC power edge poll (4 Hz)
     { PP::Scope _s{PP::Bucket::Interactable}; ue_wrap::ScopedWalkTimer _w{"sync:pc_lid"}; coop::portable_pc_lid::Tick(); }  // the lid's watch until live, then the held lid edges (1 Hz while any)
     { PP::Scope _s{PP::Bucket::Interactable}; ue_wrap::ScopedWalkTimer _w{"sync:laptop_quad"}; coop::laptop_buffer_sync::Tick(); }  // quad int pre-filter poll (4 Hz)

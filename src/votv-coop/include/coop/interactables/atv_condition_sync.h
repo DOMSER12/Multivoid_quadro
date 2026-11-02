@@ -16,6 +16,8 @@
 
 #pragma once
 
+#include "ue_wrap/devices/atv_condition.h"  // Snapshot (PayloadToSnapshot's out type)
+
 #include <cstdint>
 
 namespace coop::net { struct AtvStatePayload; }
@@ -32,8 +34,17 @@ void FillPayload(void* actor, coop::net::AtvStatePayload& p);
 // Apply a received condition block to this entry's actor. `fromHost` is whether the datagram's sender is the
 // host: a block that is not, or that the host re-sent for a client syncer (kAtvFromSyncer), is clamped to the
 // game's domains; presence is consumed only from the host's own copy, a connect snapshot's block included.
+// `fromIntent` (a condition-intent lane apply, the host's arm) is a client's VALIDATED condition: clamped
+// like any client's values, but the host re-broadcasts it at once (`stampDue`), so the other peers converge
+// on it within the tick. Presence stays host-owned in every arm but the host's own copy -- an intent's mask
+// is skipped and counted like a client syncer's, for the same reason (its wheel-prop birth cannot travel).
 // Honors tiresValid, the skipTireUpdate defer guard, and the last-expressed change edges. Game thread.
-void ApplyPayload(coop::atv_sync::AtvEntry& e, const coop::net::AtvStatePayload& p, bool fromHost);
+void ApplyPayload(coop::atv_sync::AtvEntry& e, const coop::net::AtvStatePayload& p, bool fromHost,
+                  bool fromIntent = false);
+
+// The wire block -> a wrapper snapshot: FillPayload's one mapping, inverted. Shared with the
+// condition-intent lane, which reads the condition block of an intent the stream never carried.
+void PayloadToSnapshot(const coop::net::AtvStatePayload& p, ue_wrap::atv_condition::Snapshot& s);
 
 // Idle-syncer change-gate term: true when the payload's condition block differs from the
 // last block this entry actually SENT (or nothing was ever sent). NoteSent records a send.

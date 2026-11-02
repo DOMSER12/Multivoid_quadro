@@ -49,7 +49,7 @@ host validates and commits contested writes), `local` (never shared).
 | Fireflies, ambient spawners | cosmetic spawns and the flora and forage spawners (host only) | peer for cosmetics, host for spawners | none; a client's spawners are refused from its session's start | built |
 | Story and scheduled events | host-observed fires replayed on clients by a per-event policy; the active-events registry mirrored for late joiners | host | replay and snapshot | built |
 | Alarm | the base klaxon | presser | snapshot | built |
-| Balance | the shared points total | host | replay at connect | built |
+| Balance | the shared points total, and each client's own earning merged into it (a rise no intent lane forwarded is reported, the host adds it and the broadcast converges every peer) | host; a client authors its measured rise | replay at connect | built |
 | Email, daily task | host-appended emails, peer-symmetric delete; the host's task state | host | save transfer plus a prime | built |
 | Deployed hook and rope | existence, flight, the head pose and the reel while the thrower holds it; the handover to the host when both ends anchor, and the anchor itself; the tie, which exists on the host alone, so a prop any peer's hook drags streams to everyone and two hooks on one prop are two host constraints | peer while held, arbiter at the anchor, host after; the host for every constraint | keepalive while held; the save plus a ready-edge replay once anchored; a mirror re-bites from the state it is rebuilt from | built |
 | Lamp posts | not synced: lockstep from the shared day and night cycle | local | none, by design | built |
@@ -76,7 +76,7 @@ host validates and commits contested writes), `local` (never shared).
 | Server boxes | the signal-server simulation state and its notices; a client's repair run on the host | host | snapshot | built |
 | Disc slots | the slot a laptop or a signal server holds a disc in, and the disc that comes back out of one | host owns the slot; the peer whose game changed it reports the outcome | every device's slot at the barrier | tested |
 | Shop orders | the client names a row, the host performs and prices it; the delivery queue is the host's, mirrored | arbiter | a reset and every queued order | built |
-| ATV | the driver authors the pose; a non-driving peer runs the rig natively and is steered; condition (tyres, fuel, health) travels | driver, host for the rest | snapshot | tested; eject and configuration intents not built |
+| ATV | the driver authors the pose; a non-driving peer runs the rig natively and is steered; condition (tyres, fuel, health) travels, and a non-syncer's own refuel or repair is reported and merged; `/atvrespawn` re-mints a rig full beside the host | driver, host for the rest | snapshot | tested; eject and configuration intents not built |
 | Sleep | each peer's rest state and the host's sleeping flag | each peer for its own state; the host relays | the host's flag and every peer not awake | built |
 | Player inventory | per-peer, persisted by the host per player identity; the contents never cross the wire | local; host stores | seeded before the world | tested |
 

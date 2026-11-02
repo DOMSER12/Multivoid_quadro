@@ -1218,6 +1218,21 @@ enum class ReliableKind : uint8_t {
     // coop::props::container_act_wire's commit. Never relayed; not pre-world; the same lane as the request, so an act's
     // end cannot overtake its start.
     ContainerActCommit = 209,
+
+    // CLIENT->HOST: this client's own copy of one ATV's condition changed while it does not sync the rig
+    // (the refuel, repair or tire swap its mirror ran natively). The payload is the full AtvStatePayload
+    // shape, but only the condition half is consumed: the host judges the sender's reach, clamps the
+    // domains, applies through the condition lane and lets its own stream broadcast the result -- the
+    // first intent of the act-as-host lane atv_condition_sync's known divergence deferred presence to.
+    // Never relayed; not pre-world. AtvStatePayload.
+    AtvConditionIntent = 210,
+
+    // CLIENT->HOST: this client's local balance ROSE by `delta` through a path no intent lane forwards
+    // (a sale, a token payout, a task reward). The host paces and bounds it, adds it through the game's
+    // own credit-writer, and its change-poll broadcasts the merged total to every peer -- one player's
+    // earning becomes everyone's balance. Only rises travel; spending is host-terminal and a fall is the
+    // host's absolute sync winning. Never relayed; not pre-world. BalanceEarnPayload.
+    BalanceEarn = 211,
 };
 
 #pragma pack(push, 1)
@@ -2842,6 +2857,14 @@ constexpr uint8_t kAtvFromSyncer = 0x08;
 // block it sends and ignores a client's bit; a client copy takes it from the stamp (atv_sync.cpp).
 constexpr uint8_t kAtvTrap = 0x10;
 
+// CLIENT->HOST (AtvConditionIntent): this client's own copy of one ATV's condition changed while it
+// does NOT sync the rig -- the refuel, the repair or the tire swap its mirror ran natively, which the
+// stream cannot carry because only the syncer's blocks are admitted (atv_authority::AdmitBlock). The
+// payload is the FULL AtvStatePayload shape so the condition block travels field for field with the
+// stream's and one fill site (ReadPayload) keeps both producers identical -- but only the CONDITION
+// half is consumed: the pose of a peer that does not sync the rig is nobody's truth, and the host
+// reads none of it. AtvStatePayload.
+
 // An ATV (AtvSpawn): the host ATV's own game Key and its class, so the receiver spawns the exact skin
 // under that Key. The Key is at most 31 chars (an ATV's is 22, or "ATV"); a receiver drops a longer one.
 struct AtvSpawnPayload {
@@ -3236,6 +3259,22 @@ struct BalancePayload {
     int32_t value;
 };
 static_assert(sizeof(BalancePayload) == 4, "BalancePayload must be exactly 4 bytes");
+
+// A client's balance EARNING (BalanceEarn): the rise its own copy made through a path no intent lane
+// forwards (a sale, a token payout, a task reward), as a POSITIVE delta against the last balance the
+// two peers agreed on. The host bounds and paces it, adds it through the game's own credit-writer, and
+// its change-poll broadcasts the merged total to every peer -- one player's earning becomes everyone's
+// balance. Only rises travel; a client's spending is host-terminal (an order the host priced and
+// charged) and a fall is the host's absolute sync winning.
+struct BalanceEarnPayload {
+    int32_t delta;     // 4 -- the rise, 1..kBalanceEarnMax (the host refuses anything outside)
+};
+static_assert(sizeof(BalanceEarnPayload) == 4, "BalanceEarnPayload must be exactly 4 bytes");
+
+// The earn delta's bound, one intent: the game's own payouts are tens of points; a million is far
+// above every legitimate earning the game can make in one act, and small enough that a burst of
+// forged intents stays a rounding error next to the 2^31 the retired absolute lane allowed.
+constexpr int32_t kBalanceEarnMax = 1000000;
 
 // The slot assignment (AssignPeerSlot), host to one client: the slot and the host's own Player
 // element id, which the client mirrors in slot 0 so the host's packets resolve to a Player.

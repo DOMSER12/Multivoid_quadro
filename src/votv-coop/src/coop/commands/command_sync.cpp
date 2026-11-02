@@ -33,6 +33,7 @@
 #include "coop/player/roster_ledger.h"
 #include "coop/session/player_handshake.h"
 #include "coop/text/utf8_codec.h"
+#include "coop/world/atv_respawn.h"  // /atvrespawn: the host's re-mint of a lost rig
 #include "l10n/l10n.h"
 
 #include "ue_wrap/core/game_thread.h"
@@ -227,6 +228,8 @@ struct RegistryHolder {
             UE_LOGE("commands: the settings commands did not register");
         if (!coop::commands::mv::Register(registry, RealMvPorts()))
             UE_LOGE("commands: the /mv commands did not register");
+        if (!coop::atv_respawn::RegisterCommand(registry))
+            UE_LOGE("commands: /atvrespawn did not register");
     }
 };
 

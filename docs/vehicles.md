@@ -62,6 +62,27 @@ agree, stamped with the world it arrived in: a world change drops it, the new wo
 bringing it again, and a spawn that fails in a ready world is final, never retried.
 `[?]` This readiness path still needs a two-peer join and travel test.
 
+### The second ATV at the start
+
+A fresh save puts one ATV at the base, and a co-op pair then shares it. The host tops its world
+up to two once the world has settled (`coop/world/atv_start_pair`): a settled gameplay world that
+holds exactly one keyed `ATV_C` gets a second rig spawned beside it, through the lane's own
+materialization (`ue_wrap::atv::SpawnMirror`, physics on) under a fixed namespaced key
+(`MVOID_ATV_2`). The ground the rig rests on is NavMesh-first: a projection hit places it on the
+point the mesh certifies, nearest a fixed offset from the first. VOTV bakes its NavMesh for the
+AI walkers, though, and the base's parking lot is not on it -- so a projection miss is read as
+open ground, not as a failure, and the rig spawns at the offset anyway, at the first rig's height
+plus a lift for physics to settle. A first rig parked somewhere meshed (the garage) keeps the
+projection's wall-safe placement; the fallback only ever fires where the mesh has nothing to say.
+The spawn is the whole feature -- the
+hub pass files the new rig under its key, and the announce machinery above tells every peer the
+way it tells them of any runtime ATV. A world already holding two or more is left as it stands,
+and a world whose ATV is gone is not conjured a replacement; fifteen failed attempts close the
+world's window, said once. Host only;
+a client's world is the host's, mirrored. `[?]` Built to this design; a field run hit the
+parking-lot NavMesh miss (the window closed unfilled) and the fallback was added for it; no
+two-peer run has walked a fresh save to the pair yet.
+
 ### Condition
 
 The syncer's condition rides the same payload: per-wheel durability, dirt, fixes and type, the
@@ -76,6 +97,39 @@ turn a divergence into an item loss the host persists. The mirror's own accrual 
 overwrite never races an irreversible act. The battery is an inserted prop's charge and rides
 the prop lane.
 
+### The non-syncer's condition, reported
+
+Everything above carries the SYNCER's condition. The mirror of a peer that does not sync the rig
+still runs the game natively, so a refuel with the canister, a repair with the kit or a tyre's
+fix countdown all landed on that peer's copy alone -- and the host's two-second keepalive wrote
+the old condition back over it. The canister drained and the gauge never moved; the second ATV
+made it visible, and it was true of the first whenever the refueller was not the syncer
+(`coop/interactables/atv_condition_intent`).
+
+That peer now reports: each tick, every indexed rig whose condition differs from what the host
+last told it (the entry's belief, seeded from the actor at first sight and re-seeded by every
+applied block) and whose rig this peer neither syncs nor sits in is sent as `AtvConditionIntent`
+-- the full `AtvStatePayload` shape, of which the host reads only the condition block, once a
+second per rig. The host judges the sender's reach of that rig (the seat lanes' own judge), paces
+it per sender, clamps the block to the game's domains, and applies it through the condition lane's
+intent arm: values always, verbs on the change edges, presence skipped exactly as a client
+syncer's is (the wheel-prop birth cannot travel), and one stamped block to every ready client at
+once -- the merged state, so the other peers converge within the tick and the earner's belief
+re-seeds from what comes back. Not synced still: the mask and the spare's presence itself, whose
+props this lane cannot author.
+
+### The re-mint: /atvrespawn
+
+A rig a cliff, a lake or a rollback ate is recovered by `/atvrespawn [key]`
+(`coop/world/atv_respawn`), a host command (a permitted operator's on a client, relayed the way
+commands are): it destroys the named rig -- or the world's one rig, or lists the keys when
+several stand -- and spawns a fresh one under the SAME game key beside the host's own player,
+through the start-pair's materialization and its NavMesh-then-open-ground placement. The fresh
+rig's condition is forced to what a new ATV carries -- full tank, all four wheels and the spare
+present, no wear, no dirt, health 100 -- written and then expressed through the game's own
+reducers. The key's reuse is the delivery: the hub pass prunes the dead row, the announce names
+the key again, and every peer's mirror is replaced the same way.
+
 ## Who owns what
 
 | State | Owner | Shape |
@@ -88,6 +142,7 @@ the prop lane.
 | every route to an ATV's damage and death (the two blast verbs, the explosion) | the tick owner | a copy that does not own the tick cancels them at the script gate; the owner takes every blast that reaches it |
 | the story event's trap | the host | the host copy's `trap` rides the stamp (bit 4); the driven copy fires it |
 | the condition values | the syncer | overwritten on the mirror, re-derived on edges |
+| a non-syncer's own condition change | the reporting peer, the host judged | an `AtvConditionIntent` once a second per rig; the host clamps, applies and stamps the merge to every client |
 | tyre and spare presence | the host | consumed from the host's own copy only |
 | a runtime ATV's identity | the host | its game key, announced |
 
@@ -96,6 +151,7 @@ the prop lane.
 | Kind | Direction | Carries |
 |---|---|---|
 | `AtvState` | the syncer (a client's to the host alone), re-sent by the host; the host when idle | key, pose, rotation, velocities, the seat and the syncer the host stamps, the host copy's trap, the condition block, an adopt flag |
+| `AtvConditionIntent` | a client to the host | the condition block of a rig the sender does not sync, in the `AtvState` shape; the host reads the condition only, judges the reach and merges it |
 | `AtvSeat`, `AtvTakeover` | a client to the host | a sit in or leave of the driver's seat; a grab of the ATV |
 | `AtvAnswer` | the host to the asking client | the verdict on one request, with the seat and the syncer the host holds |
 | `AtvExplodeRequest` | a client to the host | the ATV the client syncs that exploded, by key, and whether the story event's trap fell in that frame; the host blasts at the ATV's own `tp` |
@@ -128,7 +184,7 @@ run, join, park and divergence arms, each red arm failing as designed (`coop/dev
 | At a hand-back to the host the old syncer's last blocks may still be in flight; the host drops and counts them, and the stamp moves every client to the host's copy | `[?]` `coop/interactables/atv_authority`, `coop/interactables/atv_sync` |
 | A client's tyre eject is refused by the arbiter, so the host keeps the wheel and the peers disagree until the eject intent lane exists | `[V]` `coop/interactables/atv_condition_sync`, by design |
 | The pose stream rides the reliable lane; a sequenced unreliable stream is the intended shape | `[V]` `coop/interactables/atv_sync` sends it reliable |
-| Not synced: the thirteen modules and every upgrade effect, lights, brake and turbo, honk, the radio, the map, repair, the kerfur passenger, and a remote driver's body is not seated on the ATV | `[V]` nothing under `coop/interactables/atv_*` carries them |
+| Not synced: the thirteen modules and every upgrade effect, lights, brake and turbo, honk, the radio, the map, the kerfur passenger, and a remote driver's body is not seated on the ATV; REPAIR as an act is not mirrored, but its OUTCOME now is -- the fixed values travel by `AtvConditionIntent` from whichever peer did the work | `[V]` nothing under `coop/interactables/atv_*` carries the acts; `coop/interactables/atv_condition_intent` carries the values |
 
 ## Code map
 
@@ -137,7 +193,8 @@ run, join, park and divergence arms, each red arm failing as designed (`coop/dev
 | the lane | `coop/interactables/atv_sync`, `coop/interactables/atv_sync_internal.h`; `coop/interactables/atv_body` (this machine's own seat and carry against the table) |
 | the seat and syncer table, and the host's judgements | `coop/interactables/atv_authority` |
 | the corrector, the hit guard and the damage gate | `coop/interactables/atv_corrector`, `coop/interactables/atv_hit_guard`, `coop/interactables/atv_damage_gate` |
-| condition | `coop/interactables/atv_condition_sync`, `ue_wrap/devices/atv_condition` |
+| condition | `coop/interactables/atv_condition_sync`, `ue_wrap/devices/atv_condition`; `coop/interactables/atv_condition_intent` (the non-syncer's report) |
+| the re-mint | `coop/world/atv_respawn` (the `/atvrespawn` command) |
 | the engine wrapper | `ue_wrap/devices/atv` |
 | the seat | `coop/interactables/device_occupancy` |
 | tests and probes | `coop/dev/atv_probe` (the drive arm), `coop/dev/atv_tire_probe`, `coop/dev/atv_eject_drill`; the smoke run with the ATV scenario enabled |

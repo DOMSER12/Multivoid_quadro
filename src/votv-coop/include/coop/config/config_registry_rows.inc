@@ -282,5 +282,23 @@ CFG_FLAG(voice_test_tone, "voice.test_tone", "voice", false, "VOTVCOOP_VOICE_TES
 CFG_FLAG(voice_loopback, "voice.loopback", "voice", false, "VOTVCOOP_VOICE_LOOPBACK",
     "Dev: play your own transmitted voice back locally.")
 
+// The [sync] section: coverage knobs of the world-state lanes. Server rows, so the host's choice
+// rules the session; a change needs no restart, the pass reads the row each second.
+CFG_FLAG(prop_record_poll, "sync.prop_record_poll", "sync", true, "VOTVCOOP_PROP_RECORD_POLL",
+    L10N_MARK("Sync the in-place state of save-keeping props the name patterns cover (the dug "
+              "holes, the planted crops, the mining frame's parts): each second a budgeted pass "
+              "republishes a prop's save record when its values moved. Turn off only if a "
+              "pattern matches something it must not."))
+CFG_ROWFLAGS(prop_record_poll, kRowServer | kRowReplicated | kRowLive | kRowNotify)
+CFG_LABEL(prop_record_poll, L10N_MARK("Prop record poll"))
+CFG_STRING(prop_record_poll_patterns, "sync.poll_patterns", "sync",
+    "hole,plant,seed,miner,frame,garden,soil,dig,farm,seedp", nullptr, false,
+    L10N_MARK("Comma-separated name fragments (lower case, a class matches when its name contains "
+              "one) of the prop classes whose in-place state the record poll syncs. The mod logs, "
+              "once per world, every save-keeping class the patterns do not name -- add a fragment "
+              "from that line to cover more."))
+CFG_ROWFLAGS(prop_record_poll_patterns, kRowServer | kRowReplicated | kRowLive)
+CFG_LABEL(prop_record_poll_patterns, L10N_MARK("Record poll class patterns"))
+
 // The [dev] section, its own file: it grows with every drill, and the rows above are the product's.
 #include "coop/config/config_registry_rows_dev.inc"

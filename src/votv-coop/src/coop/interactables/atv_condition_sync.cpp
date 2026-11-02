@@ -4,6 +4,7 @@
 
 #include "coop/interactables/atv_condition_sync.h"
 
+#include "coop/interactables/atv_condition_intent.h"  // NoteBlockApplied: every applied block re-seeds the belief
 #include "coop/config/config.h"
 #include "coop/config/config_registry.h"
 #include "coop/interactables/atv_sync_internal.h"
@@ -37,6 +38,15 @@ constexpr float kHealthEps = 0.5f;
 std::atomic<unsigned long long> g_applied{0}, g_updTires{0}, g_updDirt{0}, g_updSpare{0},
     g_updHealth{0}, g_presenceSkipped{0}, g_deferred{0}, g_invalid{0};
 
+bool DirtGroupChanged(const AC::Snapshot& in, const AC::Snapshot& expressed) {
+    if (std::memcmp(in.fixes, expressed.fixes, sizeof(in.fixes)) != 0) return true;
+    for (int i = 0; i < 4; ++i)
+        if (std::fabs(in.dirt[i] - expressed.dirt[i]) > kDirtEps) return true;
+    return std::fabs(in.bodyDirt - expressed.bodyDirt) > kDirtEps;
+}
+
+}  // namespace
+
 void PayloadToSnapshot(const coop::net::AtvStatePayload& p, AC::Snapshot& s) {
     for (int i = 0; i < 4; ++i) {
         s.dur[i]  = p.tiresDurability[i];
@@ -53,15 +63,6 @@ void PayloadToSnapshot(const coop::net::AtvStatePayload& p, AC::Snapshot& s) {
     s.hasSpare = p.hasSpare != 0;
     s.spareFixes = p.spareFixes;
 }
-
-bool DirtGroupChanged(const AC::Snapshot& in, const AC::Snapshot& expressed) {
-    if (std::memcmp(in.fixes, expressed.fixes, sizeof(in.fixes)) != 0) return true;
-    for (int i = 0; i < 4; ++i)
-        if (std::fabs(in.dirt[i] - expressed.dirt[i]) > kDirtEps) return true;
-    return std::fabs(in.bodyDirt - expressed.bodyDirt) > kDirtEps;
-}
-
-}  // namespace
 
 void FillPayload(void* actor, coop::net::AtvStatePayload& p) {
     // p arrives memset(0) from ReadPayload -- tiresValid is already 0, which IS the honest
@@ -98,7 +99,8 @@ void FillPayload(void* actor, coop::net::AtvStatePayload& p) {
     p.tiresValid = 1;
 }
 
-void ApplyPayload(coop::atv_sync::AtvEntry& e, const coop::net::AtvStatePayload& p, bool fromHost) {
+void ApplyPayload(coop::atv_sync::AtvEntry& e, const coop::net::AtvStatePayload& p, bool fromHost,
+                  bool fromIntent) {
     using coop::atv_sync::AtvEntry;
     if (!p.tiresValid) {
         g_invalid.fetch_add(1, std::memory_order_relaxed);
@@ -126,6 +128,9 @@ void ApplyPayload(coop::atv_sync::AtvEntry& e, const coop::net::AtvStatePayload&
             PayloadToSnapshot(p, in);
             AC::WriteAccumulators(actor, in);
             g_applied.fetch_add(1, std::memory_order_relaxed);
+            // The values landed, so the sender-side belief takes them too: the same report must
+            // not read back as a fresh local change while the baseline seed is still unreadable.
+            coop::atv_condition_intent::NoteBlockApplied(e, p);
             return;
         }
         e.condExpressed = seeded;
@@ -161,7 +166,9 @@ void ApplyPayload(coop::atv_sync::AtvEntry& e, const coop::net::AtvStatePayload&
     // reach the host's persisted fields: its own block on the host, and its block as the host
     // re-sent it (kAtvFromSyncer) on the other clients. Health reaches -1 in the game.
     const bool fromSyncer = (p.stateBits & coop::net::kAtvFromSyncer) != 0;
-    if (!fromHost || fromSyncer) {
+    // A condition intent is a client's VALIDATED condition: clamped like any client's values,
+    // though it reached the host through a judged lane rather than the stream.
+    if (!fromHost || fromSyncer || fromIntent) {
         auto c01  = [](float& v) { if (v < 0.f) v = 0.f; else if (v > 1.f)   v = 1.f; };
         auto c100 = [](float& v) { if (v < 0.f) v = 0.f; else if (v > 100.f) v = 100.f; };
         for (int i = 0; i < 4; ++i) { c100(in.dur[i]); c01(in.dirt[i]); }
@@ -170,9 +177,11 @@ void ApplyPayload(coop::atv_sync::AtvEntry& e, const coop::net::AtvStatePayload&
     }
 
     const AC::Snapshot& ex = e.condExpressed;
-    // Presence is consumed from the host's own copy only (a connect snapshot's block included).
+    // Presence is consumed from the host's own copy only (a connect snapshot's block included);
+    // a condition intent's mask is a client syncer's, skipped and counted the same way, red arm
+    // or not: the drill's inversion judges the STREAM's rule, and the intent's is stricter.
     static const bool s_ejectRed = coop::config::ResolveFlag(coop::config_registry::rows::atv_eject_red);
-    const bool applyPresence = (fromHost && !fromSyncer) != s_ejectRed;  // red arm: the rule inverted
+    const bool applyPresence = !fromIntent && (fromHost && !fromSyncer) != s_ejectRed;  // red arm: the stream's rule inverted
 
     // Change groups vs the EXPRESSED baseline, over the WRITTEN set only (presence
     // terms leave the groups entirely when presence is not applied, else updTires would refire
@@ -188,13 +197,13 @@ void ApplyPayload(coop::atv_sync::AtvEntry& e, const coop::net::AtvStatePayload&
 
     if (!applyPresence && presenceDiffers) {
         // The KNOWN-BROKEN direction, counted and visible (CRUTCHES row; (b2) asserts it):
-        // a client syncer's presence claim is not consumed -- its paired wheel-prop birth
-        // cannot travel, so consuming the mask would persist an item loss on the host.
+        // a client syncer's or a condition intent's presence claim is not consumed -- its paired
+        // wheel-prop birth cannot travel, so consuming the mask would persist an item loss on the host.
         const auto n = g_presenceSkipped.fetch_add(1, std::memory_order_relaxed) + 1;
         if (n == 1 || n % 100 == 0)
-            UE_LOGW("atv_condition: presence from a client syncer DIFFERS (mask %02X vs expressed %02X) "
+            UE_LOGW("atv_condition: presence from a client syncer or intent DIFFERS (mask %02X vs expressed %02X) "
                     "-- skipped by the authority rule, x%llu (KNOWN divergence until the "
-                    "act-as-host tire-eject intent lane)",
+                    "wheel-prop birth lane)",
                     p.tiresMask, ex.mask, n);
     }
 
@@ -203,6 +212,13 @@ void ApplyPayload(coop::atv_sync::AtvEntry& e, const coop::net::AtvStatePayload&
     if (applyPresence && presenceDiffers)
         AC::WritePresence(actor, in.mask, in.hasSpare);
     g_applied.fetch_add(1, std::memory_order_relaxed);
+    // Every block that WROTE values re-seeds the condition-intent lane's sender-side belief, so
+    // the host's state never reads back as a local change to report (on the host the belief is
+    // never read, and the call returns at once).
+    coop::atv_condition_intent::NoteBlockApplied(e, p);
+    // An intent's apply IS the merged state: one stamped block goes to every ready client this
+    // tick, not at the idle stream's next poll.
+    if (fromIntent) e.stampDue = true;
 
     if (!(groupTires || groupDirt || groupSpare || groupHealth)) return;
 

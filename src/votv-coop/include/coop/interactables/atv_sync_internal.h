@@ -101,6 +101,18 @@ struct AtvEntry {
     // ACTUAL send. Pose-only gating would make a parked host eject wait out the 2 s keepalive.
     uint8_t lastSentCond[64] = {};
     bool    haveLastSentCond = false;
+    // ---- the condition-intent lane (atv_condition_intent.cpp mutates these on ONE entry) ----
+    // What the host last told this peer, or this peer last reported, of the rig's condition: the
+    // baseline a NON-SYNCER's local changes are measured against (the stream carries a syncer's
+    // condition; a mirror's own refuel or repair is nobody's until this lane reports it). Seeded
+    // from the ACTOR at first sight -- never from zero, which would report the whole world to the
+    // host at every join -- and re-seeded by every applied block (atv_condition_sync's apply calls
+    // NoteBlockApplied), so the host's keepalive never reads back as a fresh local change. Actor-
+    // stamped like condExpressed: a repointed entry (an index rebuild) re-seeds before it reports.
+    ue_wrap::atv_condition::Snapshot condIntentBelief{};
+    bool     condIntentBeliefSeeded = false;
+    void*    condIntentBeliefActor  = nullptr;
+    uint64_t condIntentNextMs = 0;     // before this, no second intent for this ATV goes out
     int      restReplaces = 0;     // re-places of a mirror whose syncer is at rest, WITHIN one
                                    // episode (see lastRestPlaceMs).
                                    // A corrector owes a convergence check on EVERY arm it

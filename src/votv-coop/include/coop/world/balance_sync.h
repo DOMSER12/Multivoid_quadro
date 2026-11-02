@@ -7,12 +7,21 @@
 // side-effects -- the MTA server-economy shape. SetSession, Tick and the connect edge run on the
 // net-pump game thread, and a received value is stashed for Tick to write.
 //
-// THE WIRE IS ONE-WAY, HOST TO CLIENT. A client-to-host BalanceDelta request lane once existed and
-// the host applied it through AddPoints with NO value bound, so any peer could set the shared
-// balance to plus or minus 2^31. It was retired whole rather than clamped: a clamp keeps a
-// client-authored economy lane alive as a foothold and needs a "legitimate range" nobody can
-// define. Its successor is OrderRequest, where the client sends list_store row names and the HOST
-// prices and charges the order (coop/items/order_sync).
+// THE WIRE IS ONE-WAY, HOST TO CLIENT -- for ABSOLUTE values. A client-to-host BalanceDelta
+// request lane once existed and the host applied it through AddPoints with NO value bound, so any
+// peer could set the shared balance to plus or minus 2^31. It was retired whole rather than
+// clamped: a clamp keeps a client-authored economy lane alive as a foothold and needs a
+// "legitimate range" nobody can define. Its successor is OrderRequest, where the client sends
+// list_store row names and the HOST prices and charges the order (coop/items/order_sync).
+//
+// What a client CAN author since is the EARNING it made and the host did not (coop/world's
+// BalanceEarn, coop::balance_sync::OnEarnIntent): the RISE its own copy measured against the last
+// balance the two peers agreed on, bounded per intent and paced per sender. The host adds it
+// through the game's own credit-writer, and its change-poll broadcasts the merged total to every
+// peer -- one player's earning becomes everyone's balance, which is the point: a sale on one
+// machine used to leave every other machine's total behind until the host next earned. Only
+// rises travel; a client's spending is host-terminal and a fall is the host's absolute sync
+// winning.
 
 #pragma once
 
@@ -50,9 +59,16 @@ void SendCurrentToSlot(int slot);
 void ApplyFromHost(int32_t total);
 
 // Apply a LOCAL credit (the +1000 dev button) on the host or solo, through AddPoints. On a
-// connected CLIENT this REFUSES and logs: there is no client-to-host economy write at all. Safe
+// connected CLIENT this REFUSES and logs: the dev button is not an earning, and the earn lane
+// carries only what a client's own copy measured against the shared total. Safe
 // from the render thread (the menu).
 void CreditLocal(int32_t amount);
+
+// Wire ingest, HOST only (the dispatch gates the role and the sender slot): one client's local
+// earning, as a positive delta against the last balance the peers agreed on. Bounded per intent
+// (kBalanceEarnMax) and paced per sender; the game's own credit-writer applies it, and the
+// change-poll above broadcasts the merged total to every peer.
+void OnEarnIntent(int32_t delta, uint8_t senderSlot);
 
 // Reset the broadcast dedup on session teardown (so a reconnect re-broadcasts).
 void OnDisconnect();

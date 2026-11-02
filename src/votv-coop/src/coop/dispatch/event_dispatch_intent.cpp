@@ -18,6 +18,8 @@
 #include "coop/creatures/kerfur_convert_host.h"
 #include "coop/creatures/roach_sync.h"    // CLIENT->HOST local roach consumption intent
 #include "coop/interactables/atv_authority.h"  // CLIENT->HOST an ATV seat or takeover request, judged by the host
+#include "coop/interactables/atv_condition_intent.h"  // CLIENT->HOST an ATV's refuel/repair its mirror ran, judged by the host
+#include "coop/world/balance_sync.h"  // CLIENT->HOST the earner's own rise, merged by the host
 #include "coop/interactables/camera_toggle_intent.h"  // CLIENT->HOST use of a security camera, or its laptop light button
 #include "coop/interactables/door_verb_intent.h"  // CLIENT->HOST press, hit or pry of a base door
 #include "coop/interactables/sleepingbag_sync.h"  // CLIENT->HOST fold/unfold; HOST runs the source Blueprint
@@ -507,6 +509,52 @@ bool HandleIntentEvent(net::Session& session,
         net::AtvTakeoverPayload p{};
         std::memcpy(&p, msg.payload, sizeof(p));
         coop::atv_authority::OnTakeover(p, static_cast<uint8_t>(msg.senderPeerSlot));
+        break;
+    }
+    case net::ReliableKind::AtvConditionIntent: {
+        // CLIENT->HOST: this client's own copy of one ATV's condition changed while it does not sync the
+        // rig (its refuel, repair or tire swap). The host judges the reach and applies the condition half
+        // to its own copy (coop::atv_condition_intent); its own stream then broadcasts the result. The
+        // payload is the AtvStatePayload shape, of which only the condition block is read. Never relayed.
+        if (session.role() != net::Role::Host) {
+            UE_LOGW("event_feed: AtvConditionIntent received on a client -- dropping");
+            break;
+        }
+        if (msg.senderPeerSlot < 1 || msg.senderPeerSlot >= net::kMaxPeers) {
+            UE_LOGW("event_feed: AtvConditionIntent from invalid senderPeerSlot=%d -- dropping", msg.senderPeerSlot);
+            break;
+        }
+        if (msg.payloadLen < sizeof(net::AtvStatePayload)) {
+            UE_LOGW("event_feed: AtvConditionIntent payload too short (%zu < %zu)",
+                    static_cast<size_t>(msg.payloadLen), sizeof(net::AtvStatePayload));
+            break;
+        }
+        net::AtvStatePayload p{};
+        std::memcpy(&p, msg.payload, sizeof(p));
+        coop::atv_condition_intent::OnIntent(p, static_cast<uint8_t>(msg.senderPeerSlot));
+        break;
+    }
+    case net::ReliableKind::BalanceEarn: {
+        // CLIENT->HOST: this client's local balance rose by a delta no intent lane forwarded. The host
+        // bounds and paces it and adds it through the game's own credit-writer
+        // (coop::balance_sync::OnEarnIntent); its change-poll then broadcasts the merged total. Never
+        // relayed.
+        if (session.role() != net::Role::Host) {
+            UE_LOGW("event_feed: BalanceEarn received on a client -- dropping");
+            break;
+        }
+        if (msg.senderPeerSlot < 1 || msg.senderPeerSlot >= net::kMaxPeers) {
+            UE_LOGW("event_feed: BalanceEarn from invalid senderPeerSlot=%d -- dropping", msg.senderPeerSlot);
+            break;
+        }
+        if (msg.payloadLen < sizeof(net::BalanceEarnPayload)) {
+            UE_LOGW("event_feed: BalanceEarn payload too short (%zu < %zu)",
+                    static_cast<size_t>(msg.payloadLen), sizeof(net::BalanceEarnPayload));
+            break;
+        }
+        net::BalanceEarnPayload p{};
+        std::memcpy(&p, msg.payload, sizeof(p));
+        coop::balance_sync::OnEarnIntent(p.delta, static_cast<uint8_t>(msg.senderPeerSlot));
         break;
     }
     case net::ReliableKind::PropActRequest: {
