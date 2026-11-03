@@ -200,11 +200,16 @@ public:
         const bool want = (p.action != 0);
         void* actor = a_.EnsureResolved() ? ResolveFast(key) : nullptr;
         if (actor) { ApplyResolved(actor, key, want, senderSlot); return; }
-        // Not streamed in yet: deferred, retried on the throttled tick.
+        // Not streamed in yet: deferred, retried on the throttled tick. The FIRST deferral of a
+        // key is said without the dev flag: a key the far peer named that this peer never indexed
+        // (an identity mismatch, or a family this build spells otherwise) would otherwise stay
+        // silent until the ten-minute backstop, which is no way to read a lane that looks dead.
+        const bool first = pending_.find(key) == pending_.end();
         pending_[key] = Pending{ want, std::chrono::steady_clock::now() + kPendingTTL, passes_ };
-        if (ProbeLog())
-            UE_LOGI("%s: '%ls' not present yet -- deferring %s (slot %u)",
-                    a_.name, key.c_str(), want ? "ON" : "OFF", senderSlot);
+        if (first || ProbeLog())
+            UE_LOGI("%s: '%ls' not present yet -- deferring %s (slot %u)%s",
+                    a_.name, key.c_str(), want ? "ON" : "OFF", senderSlot,
+                    first ? " (further retries say nothing without interactable_log=1)" : "");
     }
 
     // The authority's edge: a watched verb just ran on `actor`, so the state it left is read and sent
@@ -221,6 +226,19 @@ public:
         const std::wstring key = KeyForActor(actor);
         if (key.empty()) {
             ++unindexedEdges_;
+            // Once in 10 s the miss is said with the actor's own name and class, not just counted:
+            // an edge on a device whose key never derives (a save Key left at None, an identity
+            // the lane does not cover) looks exactly like a dead lane from the outside, and the
+            // session-end counter is too late to read while the session goes.
+            const auto now = std::chrono::steady_clock::now();
+            if (now >= nextUnindexedSay_) {
+                nextUnindexedSay_ = now + std::chrono::seconds(10);
+                UE_LOGW("%s: a verb edge ran on '%ls' (class '%ls') the index does not hold -- no "
+                        "key to address it by, nothing sent (said once in 10 s; %llu so far this "
+                        "session)", a_.name, R::ToString(R::NameOf(actor)).c_str(),
+                        R::ClassNameOf(actor).c_str(),
+                        static_cast<unsigned long long>(unindexedEdges_));
+            }
             return;
         }
         bool cur = false;
@@ -603,6 +621,7 @@ private:
     std::unordered_map<void*, std::wstring> keyByActor_;   // byKey_ the other way round, rebuilt with it
     uint64_t passes_ = 0;                                  // hub passes completed (GT-only)
     uint64_t unindexedEdges_ = 0;                          // edges on a device the index did not hold (GT-only)
+    std::chrono::steady_clock::time_point nextUnindexedSay_{};  // the unindexed edge's 10 s say (GT-only)
     std::vector<std::pair<std::wstring, Ref>> scanFound_;  // hub-pass scratch (GT-only)
     uint32_t indexGen_ = 0;   // world gen of the last completed hub pass (GT-write, GT-read)
     bool scanRegistered_ = false;

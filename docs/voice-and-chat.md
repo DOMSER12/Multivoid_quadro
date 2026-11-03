@@ -50,6 +50,15 @@ and a whisper stays local `[?]`. A peer is drawn as talking when a
 frame of theirs decoded within the last quarter second; mute, disabled and whisper are presence
 states relayed on change. A developer flag replaces the microphone with a test tone.
 
+The three transmit keys -- push-to-talk (`voice.ptt_key`, default G), the whisper key
+(`voice.whisper_key`) and the microphone on/off toggle (`voice.mute_key`, empty = disabled) --
+are rebound in the voice panel's Keys section (the V panel): a rebind captures the next key
+or mouse button pressed, Esc cancels, and the row write reaches voice_chat's subscribers, which hand the new
+virtual-key code to the capture's atomics and the mute poll live, with no device reopen. While a
+rebind is armed, the overlay's input-capture gate covers it, so a captured key never also fires
+the game's or the voice's own polls; the ini spelling (a letter, a virtual-key number, or a
+`mouseN` token -- `mouse4` middle, `mouse5`/`mouse6` side buttons, ci) is the same as ever.
+
 ## Who owns what
 
 | State | Owner | Shape |

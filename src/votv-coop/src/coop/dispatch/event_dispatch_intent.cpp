@@ -22,6 +22,8 @@
 #include "coop/world/balance_sync.h"  // CLIENT->HOST the earner's own rise, merged by the host
 #include "coop/interactables/camera_toggle_intent.h"  // CLIENT->HOST use of a security camera, or its laptop light button
 #include "coop/interactables/door_verb_intent.h"  // CLIENT->HOST press, hit or pry of a base door
+#include "coop/interactables/elevator_sync.h"  // CLIENT->HOST press of the base cargo lift
+#include "coop/props/hole_sync.h"              // CLIENT->HOST birth of a dug hole (the dirthole family)
 #include "coop/interactables/sleepingbag_sync.h"  // CLIENT->HOST fold/unfold; HOST runs the source Blueprint
 #include "coop/interactables/keypad_verbs.h"  // CLIENT->HOST digit, submit, cancel, keycard, reset
 #include "coop/interactables/laptop_tab.h"  // CLIENT->HOST the PC user's tab
@@ -139,6 +141,67 @@ bool HandleIntentEvent(net::Session& session,
         }
         coop::camera_toggle_intent::OnCameraToggleIntent(session, p,
                                                          static_cast<uint8_t>(msg.senderPeerSlot));
+        break;
+    }
+    case net::ReliableKind::ElevatorIntent: {
+        // CLIENT->HOST: a client pressed one of the base cargo lift's buttons and its copy was
+        // refused; the payload carries the `dir` its copy read and the action its button sent. The
+        // lift's resolve, the reach and the rate live in the module; the format lives here.
+        // coop::elevator_sync::OnElevatorIntent.
+        if (session.role() != net::Role::Host) {
+            UE_LOGW("event_feed: ElevatorIntent received on a client -- dropping");
+            break;
+        }
+        if (msg.senderPeerSlot < 1 || msg.senderPeerSlot >= net::kMaxPeers) {
+            UE_LOGW("event_feed: ElevatorIntent from invalid senderPeerSlot=%d -- dropping",
+                    msg.senderPeerSlot);
+            break;
+        }
+        if (msg.payloadLen < sizeof(net::ElevatorIntentPayload)) {
+            UE_LOGW("event_feed: ElevatorIntent payload too short (%zu < %zu)",
+                    static_cast<size_t>(msg.payloadLen), sizeof(net::ElevatorIntentPayload));
+            break;
+        }
+        net::ElevatorIntentPayload p{};
+        std::memcpy(&p, msg.payload, sizeof(p));
+        // The trust boundary: a `dir` bit, and an action that is one byte of the game's own action
+        // enum -- the lift's own body validates the value against its options, and a value it does
+        // not know changes nothing there, which is the same verdict a client's own copy would have
+        // reached running it.
+        if (p.dir > 1) {
+            UE_LOGW("event_feed: ElevatorIntent dir=%u out of range -- dropping",
+                    static_cast<unsigned>(p.dir));
+            break;
+        }
+        coop::elevator_sync::OnElevatorIntent(session, p,
+                                              static_cast<uint8_t>(msg.senderPeerSlot));
+        break;
+    }
+    case net::ReliableKind::HoleBirthIntent: {
+        // CLIENT->HOST: the sender's world dug a hole (the dirthole family); the class, key and
+        // pose name what the host spawns. The dedup, the spawn and the record wait live in the
+        // module. coop::hole_sync::OnHoleBirthIntent.
+        if (session.role() != net::Role::Host) {
+            UE_LOGW("event_feed: HoleBirthIntent received on a client -- dropping");
+            break;
+        }
+        if (msg.senderPeerSlot < 1 || msg.senderPeerSlot >= net::kMaxPeers) {
+            UE_LOGW("event_feed: HoleBirthIntent from invalid senderPeerSlot=%d -- dropping",
+                    static_cast<int>(msg.senderPeerSlot));
+            break;
+        }
+        if (msg.payloadLen < sizeof(net::PropDropIntentPayload)) {
+            UE_LOGW("event_feed: HoleBirthIntent payload too short (%zu < %zu)",
+                    static_cast<size_t>(msg.payloadLen), sizeof(net::PropDropIntentPayload));
+            break;
+        }
+        net::PropDropIntentPayload p{};
+        std::memcpy(&p, msg.payload, sizeof(p));
+        // The trust boundary: the pose floats are whatever the digger's world held, and the spawn
+        // is the game's own deferred spawn at that pose -- no field here writes memory the spawn
+        // does not already own. The key is a save key the key index dedups.
+        coop::hole_sync::OnHoleBirthIntent(session, p,
+                                           static_cast<uint8_t>(msg.senderPeerSlot));
         break;
     }
     case net::ReliableKind::LaptopTabReport: {

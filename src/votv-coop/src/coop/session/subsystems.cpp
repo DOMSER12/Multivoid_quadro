@@ -71,6 +71,7 @@
 #include "coop/element/death_seam.h"  // an element's end of play, handed to the lanes that subscribed
 #include "coop/props/host_spawn_watcher.h"  // HOST mirror of those ambient spawner outputs (the pinecone scare)
 #include "coop/props/prop_drop_intent.h"  // client-place -> host-auth keyed-prop DROP INTENT
+#include "coop/props/hole_sync.h"          // CLIENT dug a hole -> HoleBirthIntent; HOST expresses its own
 #include "coop/props/prop_throw.h"        // the game's own throw, seen at throwShit and numbered
 #include "coop/props/remover_request.h"  // the tool gun's remover as a request the host performs
 #include "coop/player/hit_intent.h"  // a client's hit on a host entity as an intent the host judges
@@ -316,6 +317,7 @@ void Install(coop::net::Session& session) {
     coop::host_spawn_watcher::Install(&session);  // HOST mirrors the ambient spawner outputs (the pinecone scare) the line above cancels on the client -- BeginDeferred POST -> PropSpawn-by-eid
     coop::prop_spawn_authoring::Install(session.role() == coop::net::Role::Client);  // CLIENT: the script-gate bracket that tells a PLAYER's spawn (menu / toolgun) from the world's own -- read by the seam below
     coop::prop_drop_intent::Install(&session);  // CLIENT FinishSpawn post-hook (chains after host_spawn_watcher's) -> place detect -> host DROP INTENT
+    coop::hole_sync::Install(&session);  // the dirthole birth watch: a client's dig becomes a HoleBirthIntent, the host expresses its own
     coop::kerfur_entity::SetSession(&session);  // the stable-KerfurId authority table: the session for the host id-allocation role gate and the broadcasts
     coop::kerfur_convert::Install(&session);  // host-authoritative kerfur on/off conversion (a client's verb refused -> request; the host's verb converges at its return)
     coop::served_player::Install(&session);  // HOST: the player-0 read seams the next two lanes serve through
@@ -513,6 +515,7 @@ DisconnectStats DisconnectAll() {
     coop::floppybox_sync::OnDisconnect();  // box shadows + taken-ring + canonical retries
     coop::props::container_contents_sync::OnDisconnect();  // dirty set + retry + parked + assembler
     coop::props::prop_record_refresh::OnDisconnect();  // session release, counters, the drill red's map
+    coop::hole_sync::OnDisconnect();  // the pending hole births and the lane's counters
     coop::dev::dev_lanes::RearmSelftests();  // [dev] the selftests re-arm for the next session
     coop::desk_cursor_sync::OnDisconnect();
     coop::desk_ping_sync::OnDisconnect();
@@ -631,7 +634,7 @@ void TickGameplay(coop::net::Session& session, bool isConnected, bool isHost,
     { PP::Scope _s{PP::Bucket::Interactable}; ue_wrap::ScopedWalkTimer _w{"sync:console_state"}; coop::console_state_sync::Tick(); }  // signal-catcher: host sky poll / client mirror sweep / desk + dish owner streams
     { PP::Scope _s{PP::Bucket::Interactable}; ue_wrap::ScopedWalkTimer _w{"sync:signal_catch"}; coop::signal_catch_sync::Tick(); }  // the catch and cleared detectors, 1 Hz
     { PP::Scope _s{PP::Bucket::Interactable}; ue_wrap::ScopedWalkTimer _w{"sync:propsave"}; coop::prop_save_data::Drive(); }  // budgeted park applies + the 1 Hz assembler sweep
-    { PP::Scope _s{PP::Bucket::Interactable}; coop::prop_record_poll::Tick(); }  // the patterned save-keepers (holes, plants, the mining frame): a moved record republishes
+    { PP::Scope _s{PP::Bucket::Interactable}; coop::prop_record_poll::Tick(); }  // the patterned save-keepers (the plant and garden families): a moved record republishes; the mining frame and the holes ride their own verbs (prop_record_refresh)
     { PP::Scope _s{PP::Bucket::Interactable}; ue_wrap::ScopedWalkTimer _w{"sync:laptop"}; coop::laptop_sync::Tick(); }  // PC power edge poll (4 Hz)
     { PP::Scope _s{PP::Bucket::Interactable}; ue_wrap::ScopedWalkTimer _w{"sync:pc_lid"}; coop::portable_pc_lid::Tick(); }  // the lid's watch until live, then the held lid edges (1 Hz while any)
     { PP::Scope _s{PP::Bucket::Interactable}; ue_wrap::ScopedWalkTimer _w{"sync:laptop_quad"}; coop::laptop_buffer_sync::Tick(); }  // quad int pre-filter poll (4 Hz)
@@ -679,6 +682,7 @@ void TickGameplay(coop::net::Session& session, bool isConnected, bool isHost,
     if (isHost) { PP::Scope _s{PP::Bucket::Interactable}; coop::broom_push::Tick(); }  // HOST: stream the props and clumps a broom stroke pushed (AFTER the drain above, which names the trash that same stroke dispensed)
     { PP::Scope _s{PP::Bucket::TrashWatch};    coop::prop_throw::Tick(); }  // the throwShit watch until live, and the records of throws that waited out their grant (before the drain that reads them)
     { PP::Scope _s{PP::Bucket::TrashWatch};    coop::prop_drop_intent::Tick(&session); }  // CLIENT: author a PropDropIntent for a detected place whose Key is parked (cheap no-op when empty / on host)
+    { PP::Scope _s{PP::Bucket::TrashWatch};    coop::hole_sync::Tick(session); }  // the dirthole birth watch's settle; drain the pending births (a hole's Key, then the express or the intent)
     { PP::Scope _s{PP::Bucket::TrashWatch};    coop::kerfur_form_assembler::Tick(); }  // GT FName-resolve the 2 verbs + bind the containment seams (latches once; no-op after)
     { PP::Scope _s{PP::Bucket::TrashWatch};    coop::kerfur_command::Tick(); }  // menu commands; HOST: each sender's queued request, paced
     { PP::Scope _s{PP::Bucket::TrashWatch};    coop::remover_request::Tick(); }  // the init watch's settle; HOST: each sender's queued remover press, judged and paced

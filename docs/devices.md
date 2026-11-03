@@ -134,6 +134,48 @@ by default, is addressed by no lane: a client's press on it is refused and sends
 cursed one's tick stays that peer's own. A client's copy of a wisp still switches that client's own
 cameras off until the creature mirror stops running the wisp's world writes `[?]`.
 
+### The base cargo lift
+
+The freight lift at the base (AcargoLift_C, `Content/objects/cargoLift`), the one that carries a
+player and their rig down the shaft, is an Aactor_save_C descendant: it keeps a save `Key`, so
+that key is its lane identity, the appliance family's rule. Its state is one field, `dir`, the end
+the platform is commanded to; its `moving` guards a press while the `move` timeline runs, and the
+timeline's update function is what actually carries the platform, taking its direction from `dir`.
+The buttons are not actors of their own: `buttonsElev`, `buttonsElev1`, `buttonsElev2` and
+`cargoButton` are the lift's own components, so every press a player makes on any of them
+dispatches one verb, the lift's own `actionOptionIndex` -- one watch covers the whole family.
+`prop_cargolift_C` is the level's cage prop and has no verb of its own; the lane does not address
+it.
+
+The lane is host-authoritative, the doors' shape rather than the garage's: the press is a toggle
+the client must not author, the lift animates itself from the bit the way a door swings from its
+open intent, and thirteen writers a lane could miss is exactly the light group's lesson. The host
+sends `dir` at the press verb's exit (`ElevatorState`, coop/interactables/interactable_sync's
+eleventh channel), and a client's apply writes `dir` and plays the `move` timeline through
+`PlayFromStart` (ue_wrap/devices/elevator's ApplyUp, the garage's ApplyOpen rule: write the field
+the toggle would have written, then run the game's own animation). A mid-move apply re-aims the
+lift, last writer wins, and the channel's deferred-apply retry lands an apply that arrived while
+the `moving` guard held. A joiner gets every lift's `dir` in the connect snapshot, and its copy
+animates from wherever its save had it to the end the snapshot names; a join mid-move converges at
+the arrival end, which is the answer a two-station lift needs.
+
+A client's own press is refused at the body and sent as an intent
+(`ElevatorIntent`, coop/interactables/elevator_sync, the camera lane's shape). The payload carries
+the `dir` the sender's copy read and the action its button dispatched. The host compares `dir`
+with its own: the same value means the press would land the same end there, so the host runs the
+lift's own `actionOptionIndex` with that action on its own copy -- the game's own body decides the
+move, its guards and its sound -- and the state verb's exit broadcasts the outcome. A different
+value means the sender's copy is behind, and the host answers that sender alone with its state, so
+a press that races a state edge cannot drive the host's lift the wrong way. A sender whose reach
+cannot be measured yet (no pose on the host) waits at its queue head; the reach is the camera
+lane's twice-armLength against the lift's own bounds.
+
+Measured on the 0.9.0n pak, said here so a port re-derives it: the class, the `Key`/`dir`/
+`moving`/`move` names and the press verb are the blueprint's own; that the press body is a toggle
+keyed on `dir` and that the timeline takes its direction from the field are inferred from that
+shape -- the lane's channel shadow probe says a SHADOW MISS if the build's body ever moves the
+lift by a writer the press watch does not cover.
+
 ### What is inside a container
 
 A container's contents are not on the container. Every one of them reads from a single global

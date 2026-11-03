@@ -73,6 +73,12 @@ public:
     float ThresholdDb() const { return thresholdDb_.load(std::memory_order_relaxed); }
     bool  ActivationMode() const { return cfg_.activationMode; }
 
+    // The transmit keys, live-tunable the same way (voice_chat's row subscribers): the panel's
+    // rebind writes the row, the subscriber re-parses it and hands the virtual-key code here, and
+    // the callback's next frame polls the new key with no device reopen. 0 disables a key.
+    void SetPttVk(int vk) { pttVk_.store(vk, std::memory_order_relaxed); }
+    void SetWhisperVk(int vk) { whisperVk_.store(vk, std::memory_order_relaxed); }
+
     // Capture-device names for the menu picker (one-shot enumeration; safe
     // before/after Start).
     static std::vector<std::string> EnumerateDevices();
@@ -112,6 +118,8 @@ private:
     std::atomic<float> levelDb_{-127.0f};
     std::atomic<float> gainDb_{0.0f};
     std::atomic<float> thresholdDb_{-50.0f};
+    std::atomic<int>   pttVk_{'G'};
+    std::atomic<int>   whisperVk_{0};
 
     CaptureConfig cfg_{};
     bool running_ = false;

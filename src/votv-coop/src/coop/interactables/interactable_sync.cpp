@@ -8,10 +8,12 @@
 #include "coop/interactables/interactable_sync.h"
 #include "coop/interactables/interactable_channel.h"  // the generic engine: Adapter and Channel
 #include "coop/interactables/swinger_join_pose.h"     // a joiner's open lids at their host's places
+#include "coop/player/players_registry.h"             // the lift apply's pressing body (the local pawn)
 
 #include "ue_wrap/devices/appliance.h"     // the six-class save-actor toggle family
 #include "ue_wrap/devices/door.h"
 #include "ue_wrap/devices/door_box.h"      // lockers and the drone-console box
+#include "ue_wrap/devices/elevator.h"      // the base cargo lift
 #include "ue_wrap/devices/garage.h"
 #include "ue_wrap/devices/lightswitch.h"
 #include "ue_wrap/devices/security_camera.h"
@@ -227,6 +229,24 @@ const Adapter g_cameraLightAdapter = {
     &ue_wrap::security_camera::ReadLight,
     &ApplyCameraLight,
 };
+// The base cargo lift (AcargoLift_C), host-authoritative: the lift's own Blueprint animates its
+// move from the `dir` bit the lane carries, so a client renders the state (the write plus the
+// timeline start inside the apply), and its own press reaches the host as an intent
+// (coop/interactables/elevator_sync). HostAuth like the doors and the cameras: the press verb is
+// a toggle the client must not author on its copy. Keyed by the Aactor_save_C::Key (the lift is
+// save-persistent, the appliance family's identity rule).
+const Adapter g_elevatorAdapter = {
+    "elevator", coop::net::ReliableKind::ElevatorState,
+    &ue_wrap::elevator::EnsureResolved,
+    &ue_wrap::elevator::IsLift,
+    &ue_wrap::elevator::GetKeyString,
+    &ue_wrap::elevator::TryReadUp,
+    [](void* a, bool on) -> bool {
+        // The replay's pressing body: the local pawn, what a player's own press would pass. The
+        // adapter signature carries no player, so the apply reads it where it runs.
+        return ue_wrap::elevator::ApplyUpAs(a, on, coop::players::Registry::Get().Local());
+    },
+};
 Channel g_door{g_doorAdapter, Channel::Mode::HostAuth};  // doors auto-revert: host-authoritative
 Channel g_light{g_lightAdapter};
 // Host-authoritative: the client neither polls nor requests on this kind.
@@ -238,13 +258,14 @@ Channel g_doorBox{g_doorBoxAdapter};  // no auto-revert: symmetric
 Channel g_oven{g_ovenAdapter};  // one way: whoever repairs it
 Channel g_cameraActive{g_cameraActiveAdapter, Channel::Mode::HostAuth};
 Channel g_cameraLight{g_cameraLightAdapter, Channel::Mode::HostAuth};
+Channel g_elevator{g_elevatorAdapter, Channel::Mode::HostAuth};  // the lift animates its own move
 // Keypads (ApasswordLock_C) are not a toggle (a typed buffer and three state bools, with an
 // accept verb this engine cannot reach) and live in coop::keypad_sync; KeypadState routes there
 // from event_feed, not through ChannelForKind.
 
 // Every channel, once: each list below walks this one, in this order.
 Channel* const kChannels[] = {&g_door, &g_light, &g_lightGroup, &g_container, &g_garage, &g_appliance, &g_doorBox,
-                              &g_oven, &g_cameraActive, &g_cameraLight};
+                              &g_oven, &g_cameraActive, &g_cameraLight, &g_elevator};
 
 Channel* ChannelForKind(coop::net::ReliableKind k) {
     for (Channel* ch : kChannels)
@@ -304,11 +325,20 @@ void OnCameraVerb(void* cam) {
     g_cameraLight.OnLocalEdge(cam);
 }
 
+void OnElevatorVerb(void* lift) { g_elevator.OnLocalEdge(lift); }
+
 std::wstring CameraKey(void* cam) { return g_cameraActive.KeyForActor(cam); }
 
 void* ResolveCamera(const std::wstring& key) {
     if (key.empty() || !ue_wrap::security_camera::EnsureResolved()) return nullptr;
     return g_cameraActive.ActorForKey(key);
+}
+
+std::wstring ElevatorKey(void* lift) { return g_elevator.KeyForActor(lift); }
+
+void* ResolveElevator(const std::wstring& key) {
+    if (key.empty() || !ue_wrap::elevator::EnsureResolved()) return nullptr;
+    return g_elevator.ActorForKey(key);
 }
 
 bool ApplyingLightGroup(void* root) { return root && root == g_applyingGroup; }

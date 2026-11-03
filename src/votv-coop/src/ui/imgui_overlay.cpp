@@ -242,8 +242,11 @@ void RenderFrameGuarded(const overlay_backend::FrameTarget& t) {
 
         // Publish "the overlay is capturing typed text" for the hotkey pollers (voice PTT, freecam,
         // the spawn menu), whose GetAsyncKeyState reads must not fire on a keystroke meant for a
-        // field. WantTextInput, or the chat-open latch for the one focus-handoff frame.
-        const bool overlayText = ImGui::GetIO().WantTextInput || ui::chat_input::IsOpen();
+        // field. WantTextInput, or the chat-open latch for the one focus-handoff frame -- or a
+        // voice-panel key rebind waiting for its key, which must not also toggle the mic or open
+        // the voice channel as it is captured.
+        const bool overlayText = ImGui::GetIO().WantTextInput || ui::chat_input::IsOpen() ||
+                                 ui::voice_panel::IsCapturingKey();
         ui::input_focus::SetOverlayCapturingText(overlayText);
         coop::input::input_owner::PublishOverlayOwnsText(overlayText);
 

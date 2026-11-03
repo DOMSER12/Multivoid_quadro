@@ -13,6 +13,8 @@
 
 #include "imgui.h"
 
+#include <windows.h>
+
 #include <algorithm>
 #include <atomic>
 #include <cstdio>
@@ -39,6 +41,19 @@ std::vector<std::string> g_outDevices;
 char g_micCurrent[160] = {};
 char g_outCurrent[160] = {};
 char g_pttKey[32] = {};
+char g_whisperKey[32] = {};
+char g_muteKey[32] = {};
+
+// The key-rebind capture, render-thread only (Render owns it; IsCapturingKey reads it on the
+// same thread from the overlay's per-frame publish). `row` names the row being rebound -- 1 the
+// push-to-talk key, 2 the whisper key, 3 the mute key -- and 0 is idle. `cleared` is the wait
+// for the frame where NOTHING is down any more: the click that pressed the rebind button is
+// itself a key, and without the clear it would be captured as the new bind.
+struct KeyCapture {
+    int  row = 0;
+    bool cleared = false;
+};
+KeyCapture g_keyCapture;
 
 // Each slider's handle value -- stored on every frame the handle is held, and on the frame a
 // typed value (Ctrl+click, Enter) applies, when the item is already inactive -- and whether an
@@ -70,6 +85,10 @@ void RefreshDevices() {
                   coop::config::ResolveString(coop::config_registry::rows::voice_output_device).c_str());
     std::snprintf(g_pttKey, sizeof(g_pttKey), "%s",
                   coop::config::ResolveString(coop::config_registry::rows::voice_ptt_key).c_str());
+    std::snprintf(g_whisperKey, sizeof(g_whisperKey), "%s",
+                  coop::config::ResolveString(coop::config_registry::rows::voice_whisper_key).c_str());
+    std::snprintf(g_muteKey, sizeof(g_muteKey), "%s",
+                  coop::config::ResolveString(coop::config_registry::rows::voice_mute_key).c_str());
     g_devicesFresh = true;
 }
 
@@ -94,6 +113,119 @@ void DeviceCombo(const char* text, const char* id, const coop::config_registry::
     }
 }
 
+// ---- the key rebinds -------------------------------------------------------------------------
+
+// The key scan for the capture: 0 = nothing new, -1 = cancel (Esc), else the virtual-key code
+// that is down. The middle and the two side mouse buttons (VK_MBUTTON..VK_XBUTTON2, 4..6) are
+// scanned FIRST -- the common mouse PTT binds; LMB/RMB stay out (they are the panel's own
+// clicks and the game's fire/aim), and so do the two reserved no-key codes. GetAsyncKeyState
+// is process-global, but the panel is open only over our own window, which is the same
+// foreground gate the voice polls sit behind.
+int PollCapturedKey() {
+    for (int vk = VK_MBUTTON; vk <= VK_XBUTTON2; ++vk)
+        if ((::GetAsyncKeyState(vk) & 0x8000) != 0) return vk;
+    for (int vk = 8; vk < 256; ++vk) {
+        if (vk == 0x0A || vk == 0x0B) continue;  // reserved, no key
+        if ((::GetAsyncKeyState(vk) & 0x8000) != 0) return vk == VK_ESCAPE ? -1 : vk;
+    }
+    return 0;
+}
+
+bool AnyKeyDown() {
+    // From VK_LBUTTON on: the arming click is a mouse button too, so the clear wait must see
+    // the buttons released before the capture takes the next key down.
+    for (int vk = VK_LBUTTON; vk <= VK_XBUTTON2; ++vk)
+        if ((::GetAsyncKeyState(vk) & 0x8000) != 0) return true;
+    for (int vk = 8; vk < 256; ++vk) {
+        if (vk == 0x0A || vk == 0x0B) continue;
+        if ((::GetAsyncKeyState(vk) & 0x8000) != 0) return true;
+    }
+    return false;
+}
+
+// The row value a captured key becomes: a letter or a digit as itself, a mouse button as its
+// "mouseN" token, any other key as its virtual-key number -- the spellings voice_chat's
+// ParseKey reads.
+void VkToText(int vk, char* out, size_t cap) {
+    if (vk >= VK_MBUTTON && vk <= VK_XBUTTON2) {
+        std::snprintf(out, cap, "mouse%d", vk);
+        return;
+    }
+    if ((vk >= 'A' && vk <= 'Z') || (vk >= '0' && vk <= '9'))
+        std::snprintf(out, cap, "%c", vk);
+    else
+        std::snprintf(out, cap, "%d", vk);
+}
+
+// The capture's per-frame step, run at the top of Render: the click's release wait, then the
+// first key down is the bind -- Esc cancels -- and the row write lands through the config
+// subscriber live. The label cache is written here too, so the next frame's button shows the
+// new key without a file read.
+void TickKeyCapture() {
+    if (g_keyCapture.row == 0) return;
+    if (!g_keyCapture.cleared) {
+        if (!AnyKeyDown()) g_keyCapture.cleared = true;  // the click that armed us is up
+        return;
+    }
+    const int vk = PollCapturedKey();
+    if (vk == 0) return;                       // nothing down yet
+    if (vk == -1) { g_keyCapture.row = 0; return; }  // Esc: the bind stays as it was
+    char text[16];
+    VkToText(vk, text, sizeof text);
+    // Fully qualified on purpose: config_registry.h forbids using-declarations and aliases for
+    // the rows namespace (CI-asserted, the reference census depends on it).
+    switch (g_keyCapture.row) {
+    case 1:
+        coop::config::SetValue(coop::config_registry::rows::voice_ptt_key, text);
+        std::snprintf(g_pttKey, sizeof(g_pttKey), "%s", text);
+        break;
+    case 2:
+        coop::config::SetValue(coop::config_registry::rows::voice_whisper_key, text);
+        std::snprintf(g_whisperKey, sizeof(g_whisperKey), "%s", text);
+        break;
+    case 3:
+        coop::config::SetValue(coop::config_registry::rows::voice_mute_key, text);
+        std::snprintf(g_muteKey, sizeof(g_muteKey), "%s", text);
+        break;
+    default: break;
+    }
+    g_keyCapture.row = 0;
+}
+
+// One key row of the Keys section: the label, the current key, the Change button (which shows
+// "Press a key..." while its capture is armed) and the Clear button, which writes the empty
+// value -- for the whisper and mute keys that is "disabled", for the push-to-talk key the
+// engine default 'G'.
+void KeyRebindRow(const char* label, const char* id, int rowId, const char* current,
+                  const char* emptyMeaning) {
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(label);
+    ImGui::SameLine(ui::scale::S(150.0f));
+    const bool armed = g_keyCapture.row == rowId;
+    char changeId[64];
+    std::snprintf(changeId, sizeof(changeId), "%s##coop_key%d", armed ? "*" : (current[0] ? current : "-"), rowId);
+    const char* changeLabel = armed ? l10n::T("Press a key... (Esc to cancel)") : changeId;
+    if (ImGui::SmallButton(l10n::Label(changeLabel, id))) {
+        g_keyCapture.row = rowId;
+        g_keyCapture.cleared = false;
+    }
+    ImGui::SameLine();
+    char clearId[64];
+    std::snprintf(clearId, sizeof(clearId), "%s##coop_keyclear%d", l10n::T("Clear"), rowId);
+    if (ImGui::SmallButton(l10n::Label(clearId, id))) {
+        // Fully qualified: the rows namespace may not be aliased (config_registry.h, CI-asserted).
+        switch (rowId) {
+        case 1: coop::config::SetValue(coop::config_registry::rows::voice_ptt_key, ""); std::snprintf(g_pttKey, sizeof(g_pttKey), "%s", ""); break;
+        case 2: coop::config::SetValue(coop::config_registry::rows::voice_whisper_key, ""); std::snprintf(g_whisperKey, sizeof(g_whisperKey), "%s", ""); break;
+        case 3: coop::config::SetValue(coop::config_registry::rows::voice_mute_key, ""); std::snprintf(g_muteKey, sizeof(g_muteKey), "%s", ""); break;
+        default: break;
+        }
+        if (g_keyCapture.row == rowId) g_keyCapture.row = 0;
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("(%s)", current[0] ? current : emptyMeaning);
+}
+
 }  // namespace
 
 void Toggle() {
@@ -104,6 +236,13 @@ void Toggle() {
 void Close() { g_open = false; }
 
 bool IsOpen() { return g_open; }
+
+// Which key row the overlay's text-capture gate must also cover: while a rebind is armed, a
+// keystroke belongs to the rebind and must not also fire the game's or the voice's own polls.
+// Declared in voice_panel.h and called from imgui_overlay, so this definition stays OUT of the
+// anonymous namespace -- inside it the symbol would have internal linkage and the link would
+// fail with LNK2019 (exactly that happened once).
+bool IsCapturingKey() { return g_keyCapture.row != 0; }
 
 void CommitAbandonedDrag() {
     if (g_open.load(std::memory_order_relaxed)) return;
@@ -119,6 +258,7 @@ void CommitAbandonedDrag() {
 void Render() {
     if (!g_open.load(std::memory_order_relaxed)) return;
     if (!g_devicesFresh) RefreshDevices();
+    TickKeyCapture();  // the armed rebind reads its key while the panel draws
 
     VC::UiSnapshot s;
     VC::GetUiSnapshot(s);
@@ -186,6 +326,8 @@ void Render() {
         bool muted = s.muted != 0;
         if (ImGui::Checkbox(l10n::Label(l10n::T("Mute my microphone"), "mute_my_microphone"), &muted))
             VC::SetMuted(muted);
+        ImGui::SameLine();
+        ImGui::TextDisabled("(key: %s)", g_muteKey[0] ? g_muteKey : "off");
 
         ImGui::Spacing();
         ImGui::SeparatorText(l10n::Label(l10n::T("Activation"), "activation"));
@@ -199,9 +341,7 @@ void Render() {
         if (ImGui::IsItemHovered()) {
             char tip[512];
             l10n::Fmt(tip, sizeof(tip),
-                      l10n::T("Hold the key to talk. Change the key via %s\n"
-                              "in multivoid.ini (single letter or a virtual-key number)."),
-                      "voice.ptt_key");
+                      l10n::T("Hold the key to talk. Change the key in the Keys section below."));
             ImGui::SetTooltip("%s", tip);
         }
         if (ImGui::RadioButton(l10n::Label(l10n::T("Voice activation"), "voice_activation"), &mode, 1))
@@ -251,6 +391,17 @@ void Render() {
                                    l10n::T("Threshold near 0 dB -- the mic will almost never "
                                            "trigger. Try -50 dB."));
         }
+
+        ImGui::Spacing();
+        ImGui::SeparatorText(l10n::Label(l10n::T("Keys"), "keys"));
+        KeyRebindRow(l10n::T("Push-to-talk key"), "coop_key_ptt", 1, g_pttKey,
+                     l10n::T("default G"));
+        KeyRebindRow(l10n::T("Whisper key"), "coop_key_whisper", 2, g_whisperKey,
+                     l10n::T("disabled"));
+        KeyRebindRow(l10n::T("Mic on/off key"), "coop_key_mute", 3, g_muteKey,
+                     l10n::T("disabled"));
+        ImGui::TextDisabled("%s", l10n::T("A key is a letter, a digit, a virtual-key number, or a\n"
+                                          "mouse button (mouse4 = middle, mouse5/mouse6 = side)."));
 
         ImGui::Spacing();
         ImGui::SeparatorText(l10n::Label(l10n::T("Levels"), "levels"));

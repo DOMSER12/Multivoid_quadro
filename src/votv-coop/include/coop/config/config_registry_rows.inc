@@ -292,11 +292,14 @@ CFG_FLAG(prop_record_poll, "sync.prop_record_poll", "sync", true, "VOTVCOOP_PROP
 CFG_ROWFLAGS(prop_record_poll, kRowServer | kRowReplicated | kRowLive | kRowNotify)
 CFG_LABEL(prop_record_poll, L10N_MARK("Prop record poll"))
 CFG_STRING(prop_record_poll_patterns, "sync.poll_patterns", "sync",
-    "hole,plant,seed,miner,frame,garden,soil,dig,farm,seedp", nullptr, false,
+    "plant,seed,garden,soil,seedp", nullptr, false,
     L10N_MARK("Comma-separated name fragments (lower case, a class matches when its name contains "
-              "one) of the prop classes whose in-place state the record poll syncs. The mod logs, "
-              "once per world, every save-keeping class the patterns do not name -- add a fragment "
-              "from that line to cover more."))
+              "one) of the prop classes whose in-place state the record poll syncs. The mining "
+              "frame and the dug holes do not live here any more -- their records cross at their "
+              "own verbs (coop/props/prop_record_refresh), so they are event-driven rather than "
+              "polled; re-add a fragment here only as a fallback while a verb gate is dead. The "
+              "mod logs, once per world, every save-keeping class the patterns do not name -- add "
+              "a fragment from that line to cover more."))
 CFG_ROWFLAGS(prop_record_poll_patterns, kRowServer | kRowReplicated | kRowLive)
 CFG_LABEL(prop_record_poll_patterns, L10N_MARK("Record poll class patterns"))
 

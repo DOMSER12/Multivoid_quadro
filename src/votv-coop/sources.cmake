@@ -214,6 +214,7 @@ set(VOTVCOOP_SOURCES
     src/coop/props/prop_food_state.cpp
     src/coop/props/prop_record_refresh.cpp
     src/coop/props/prop_record_poll.cpp
+    src/coop/props/hole_sync.cpp
     src/coop/props/pack_trash_intent.cpp
     src/coop/props/prop_drop_intent.cpp
     src/coop/props/hit_target_prop.cpp
@@ -377,6 +378,7 @@ set(VOTVCOOP_SOURCES
     src/coop/interactables/drone_call_intent.cpp
     src/coop/interactables/door_verb_intent.cpp
     src/coop/interactables/camera_toggle_intent.cpp
+    src/coop/interactables/elevator_sync.cpp
     src/coop/interactables/door_state_verbs.cpp
     src/coop/interactables/lightgroup_verbs.cpp
     src/coop/interactables/verb_lanes.cpp

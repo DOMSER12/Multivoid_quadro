@@ -152,6 +152,8 @@ constexpr ClientAuthorship AuthorshipOf(ReliableKind k) {
     case ReliableKind::DevContainerParity:
     case ReliableKind::AtvConditionIntent:
     case ReliableKind::BalanceEarn:
+    case ReliableKind::ElevatorIntent:  // a client's lift press, run by the host
+    case ReliableKind::HoleBirthIntent:  // a client's dug hole, spawned by the host
         return ClientAuthorship::Client;
     // The Host row matches MTA's protected element data, which a client may not write: opt-in there
     // (reference/mtasa-blue/Server/mods/deathmatch/logic/CGame.cpp:2743-2755), the only mode here.
@@ -229,6 +231,7 @@ constexpr ClientAuthorship AuthorshipOf(ReliableKind k) {
     case ReliableKind::ContainerActReply:
     case ReliableKind::CameraActiveState:
     case ReliableKind::CameraLightState:
+    case ReliableKind::ElevatorState:  // the cargo lift's target end, host-authored like the doors
     case ReliableKind::LaptopTabState:
     case ReliableKind::AtvSetComplete:
     case ReliableKind::PropSyncAnswer:

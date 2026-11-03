@@ -107,6 +107,9 @@ inline constexpr RefFn kRefFns[] = {
     {L"blackballspawner_c", L"executeubergraph_blackballspawner", L"blackballspawner_c.executeubergraph_blackballspawner", 0xd3c93c9d2749b427ull, 0xe53c2104ffc8eee2ull},
     {L"canvas", L"k2_drawmaterial", L"canvas.k2_drawmaterial", 0x190866b42f1361c8ull, 0xcbf29ce484222325ull},
     {L"car1_witch_c", L"inpactevt_leftmousebutton_k2node_inputkeyevent_0", L"car1_witch_c.inpactevt_leftmousebutton_k2node_inputkeyevent_0", 0xba244dce9f431cf1ull, 0xf396c16f65ccd591ull},
+    // The cargo lift's press: the row is new, the fingerprint not captured on the reference build
+    // yet -- the census says "present, but absent on the reference build" until the capture lands.
+    {L"cargolift_c", L"actionoptionindex", nullptr, 0, 0},
     {L"cockroachmaster_c", L"addroachtimer", L"cockroachmaster_c.addroachtimer", 0x6a2d5d90ab51fa2dull, 0x3b5c683d881da498ull},
     {L"cockroachmaster_c", L"customevent", L"cockroachmaster_c.customevent", 0x6a2d5d90ab51fa2dull, 0xdaa8e32134df56b7ull},
     {L"cockroachmaster_c", L"receivetick", L"cockroachmaster_c.receivetick", 0x6082ffdfa2cda429ull, 0xe84b73b6f48cab0eull},
@@ -143,6 +146,12 @@ inline constexpr RefFn kRefFns[] = {
     {L"daynightcycle_c", L"timerrain", L"daynightcycle_c.timerrain", 0x6a2d5d90ab51fa2dull, 0xc4a22f08acb9bc64ull},
     {L"directionalwind_c", L"changewindorigin", L"directionalwind_c.changewindorigin", 0x6a2d5d90ab51fa2dull, 0x5e6dca58a8113df3ull},
     {L"directionalwind_c", L"receivetick", L"directionalwind_c.receivetick", 0x6082ffdfa2cda429ull, 0xfae4404a402ba556ull},
+    // The dug hole's four mutating verbs (prop_record_refresh): new rows, the fingerprints not
+    // captured on the reference build yet.
+    {L"dirthole_c", L"digup", nullptr, 0, 0},
+    {L"dirthole_c", L"playerusedon", nullptr, 0, 0},
+    {L"dirthole_c", L"playerusedon_delay", nullptr, 0, 0},
+    {L"dirthole_c", L"processburieditem", nullptr, 0, 0},
     {L"dish_c", L"genertehashcode", L"dish_c.genertehashcode", 0x6a2d5d90ab51fa2dull, 0x72ed6a78ca7696bfull},
     {L"dream_climb_c", L"bndevt__dream_climb_box_k2node_componentboundevent_0_componentbeginoverlapsignature__delegatesignature", L"dream_climb_c.bndevt__dream_climb_box_k2node_componentboundevent_0_componentbeginoverlapsignature__delegatesignature", 0x068571522f5f0453ull, 0x1173885355b6ee8dull},
     {L"dream_jump_c", L"bndevt__dream_climb_box_k2node_componentboundevent_0_componentbeginoverlapsignature__delegatesignature", L"dream_jump_c.bndevt__dream_climb_box_k2node_componentboundevent_0_componentbeginoverlapsignature__delegatesignature", 0x068571522f5f0453ull, 0x31f1479aea437c4full},
@@ -354,6 +363,9 @@ inline constexpr RefFn kRefFns[] = {
     {L"prop_grunt_c", L"bndevt__prop_grunt_damagesphere_k2node_componentboundevent_1_componentbeginoverlapsignature__delegatesignature", L"prop_grunt_c.bndevt__prop_grunt_damagesphere_k2node_componentboundevent_1_componentbeginoverlapsignature__delegatesignature", 0x068571522f5f0453ull, 0x9e1fcd8674a0a72eull},
     {L"prop_inventorycontainer_drone_c", L"receivebeginplay", L"prop_inventorycontainer_drone_c.receivebeginplay", 0x6a2d5d90ab51fa2dull, 0xe9032bc7f165cf08ull},
     {L"prop_lighter_c", L"playerhanduse_lmb", L"prop_lighter_c.playerhanduse_lmb", 0x5de5f12d89a97b5eull, 0xca8166caab2c1130ull},
+    // The mining frame's upd (prop_record_refresh): a new row, the fingerprint not captured on
+    // the reference build yet.
+    {L"prop_miner_c", L"upd", nullptr, 0, 0},
     {L"prop_notebook_c", L"playerusedon", L"prop_notebook_c.playerusedon", 0x2c4f0c15ebdccee4ull, 0x3ef6e3b793e10020ull},
     {L"prop_pointsack_c", L"actionoptionindex", L"prop_pointsack_c.actionoptionindex", 0x5a7351a33bbf62a6ull, 0x9f8cc0fce60d17feull},
     {L"prop_portablepc_c", L"open", L"prop_portablepc_c.open", 0x258b03e1afed7d13ull, 0x852448993c80bccbull},

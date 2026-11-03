@@ -1233,6 +1233,32 @@ enum class ReliableKind : uint8_t {
     // earning becomes everyone's balance. Only rises travel; spending is host-terminal and a fall is the
     // host's absolute sync winning. Never relayed; not pre-world. BalanceEarnPayload.
     BalanceEarn = 211,
+
+    // HOST->ALL: the base cargo lift's target end (AcargoLift_C::dir), keyed by the lift lane's key
+    // (the Aactor_save_C::Key, the appliance family's rule). The lift's own Blueprint animates the
+    // move from the bit, so a client renders the state and refuses its own press, which reaches the
+    // host as ElevatorIntent. Host-authored, so refused from a client and never relayed.
+    // KeyedTogglePayload.
+    ElevatorState = 212,
+
+    // CLIENT->HOST: a client pressed one of the lift's buttons. The payload carries the `dir` bit the
+    // SENDER's copy read and the `action` its button dispatched. The host compares its own `dir`: the
+    // same value means the press would land the same end there, so the host runs the lift's own
+    // actionOptionIndex with that action (the game's own body decides the move, the sound and the
+    // guards) and its state verb broadcasts the outcome; a different value means the sender's copy is
+    // behind, and the sender is answered with the host's state alone. Never relayed; not pre-world.
+    // ElevatorIntentPayload.
+    ElevatorIntent = 213,
+
+    // CLIENT->HOST: the sender's world dug a hole (the dirthole family the shovel births). The
+    // keyed-prop rule keeps the host the author of every keyed prop, and a dig is a player action
+    // the host must author: the client keeps its own local hole and reports the birth, the prop
+    // drop intent's shape one class family over. The host spawns the authoritative copy at the
+    // class, key and pose the intent names (its birth express then tells the other clients), the
+    // author's record follows on PropSaveDataIntent, and the author adopts its own local copy by
+    // the exact key when the host's PropSpawn row comes back. Never relayed; not pre-world.
+    // PropDropIntentPayload.
+    HoleBirthIntent = 214,
 };
 
 #pragma pack(push, 1)
@@ -2068,6 +2094,21 @@ struct CameraToggleIntentPayload {
 static_assert(sizeof(CameraToggleIntentPayload) == 34, "CameraToggleIntentPayload must be 34 bytes");
 static_assert(sizeof(CameraToggleIntentPayload) <= 256 - 20 - 8,
               "CameraToggleIntentPayload must fit one datagram");
+
+// The base cargo lift's press intent (ElevatorIntent): the lift lane's key for the lift, the `dir`
+// bit the SENDER's copy read when it was refused -- the state its press would have flipped -- and
+// the `action` value its button's dispatch carried, which the host's run passes back through the
+// lift's own actionOptionIndex. The host compares `dir` with its own and either runs the press or
+// answers the sender with its state (protocol.h's ElevatorIntent comment carries the rule).
+struct ElevatorIntentPayload {
+    WireKey  key;        // 32 -- the lift lane's key for the lift
+    uint8_t  dir;        // 1  -- the sender's copy's target end: 0 or 1
+    uint8_t  action;     // 1  -- the pressed action, the enum_interactionActions value the button sent
+    uint8_t  _pad[6];    // 6  -- reserved, 8-byte alignment with KeyedTogglePayload
+};
+static_assert(sizeof(ElevatorIntentPayload) == 40, "ElevatorIntentPayload must be 40 bytes");
+static_assert(sizeof(ElevatorIntentPayload) <= 256 - 20 - 8,
+              "ElevatorIntentPayload must fit one datagram");
 
 // The laptop widget's tab (LaptopTabReport, LaptopTabState): the switcher's active index. One layout for both kinds.
 struct LaptopTabPayload {

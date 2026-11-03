@@ -82,6 +82,17 @@ std::atomic<uint32_t> g_reopens{0};
 int ParseKey(const std::string& s, int def) {
     if (s.empty()) return def;
     if (s.size() == 1) return std::toupper(static_cast<unsigned char>(s[0]));
+    // "mouseN" (ci), N in 1, 2, 4, 5, 6: VK_LBUTTON, VK_RBUTTON, VK_MBUTTON, VK_XBUTTON1,
+    // VK_XBUTTON2 -- GetAsyncKeyState answers for all five, and the PTT/whisper/mute polls
+    // read the parsed VK unchanged. The named token is the ONLY spelling for a mouse button:
+    // a single digit is that keyboard digit's VK ('5' -> 0x35) and a multi-digit number is
+    // read literally, so no numeric spelling can name a mouse button, and "3" would be
+    // VK_CANCEL, which is no mouse button at all. The panel's capture offers only the middle
+    // and the two side buttons; mouse1/mouse2 stay legal here for a hand-edited ini.
+    if (s.size() == 6 && (s[0] == 'm' || s[0] == 'M') && (s[1] == 'o' || s[1] == 'O') &&
+        (s[2] == 'u' || s[2] == 'U') && (s[3] == 's' || s[3] == 'S') &&
+        (s[4] == 'e' || s[4] == 'E') && s[5] >= '1' && s[5] <= '6' && s[5] != '3')
+        return s[5] - '0';
     return static_cast<int>(std::strtol(s.c_str(), nullptr, 0));
 }
 
@@ -201,6 +212,29 @@ void OnVoiceRangeRowChanged() {
                 coop::voice::DefaultRangeCm() * 0.5f);
 }
 
+// The three transmit-key rows apply live, the sliders' shape: the panel's rebind writes the row,
+// the subscriber re-parses it, and the next poll of that key reads the new code. No device
+// restart: the capture's keys are atomics the mic callback reads per frame, and the mute key is
+// this file's own game-thread poll. The capture reads are skipped while the devices are closed
+// (the setters are safe any time; the poll is gated on g_started).
+void OnVoicePttKeyRowChanged() {
+    const int vk = ParseKey(CFG::ResolveString(coop::config_registry::rows::voice_ptt_key), 'G');
+    g_capture.SetPttVk(vk);
+    UE_LOGI("voice_chat: push-to-talk key changed (vk=0x%X)", vk);
+}
+
+void OnVoiceWhisperKeyRowChanged() {
+    const int vk = ParseKey(CFG::ResolveString(coop::config_registry::rows::voice_whisper_key), 0);
+    g_capture.SetWhisperVk(vk);
+    UE_LOGI("voice_chat: whisper key changed (vk=0x%X)", vk);
+}
+
+void OnVoiceMuteKeyRowChanged() {
+    g_muteVk = ParseKey(CFG::ResolveString(coop::config_registry::rows::voice_mute_key), 0);
+    g_muteKeyWasDown = false;  // a new key starts its edge clean, whichever way the old one was held
+    UE_LOGI("voice_chat: mute key changed (vk=0x%X)", g_muteVk);
+}
+
 }  // namespace
 
 void SubscribeRows() {
@@ -211,6 +245,12 @@ void SubscribeRows() {
     CFG::Subscribe(::coop::config_registry::rows::voice_mic_gain_db, &OnVoiceGainRowChanged);
     CFG::Subscribe(::coop::config_registry::rows::voice_volume, &OnVoiceVolumeRowChanged);
     CFG::Subscribe(::coop::config_registry::rows::voice_distance_cm, &OnVoiceRangeRowChanged);
+    // The transmit keys: the voice panel's rebinds write these rows, and each subscriber applies
+    // the new key live -- the PTT and whisper keys onto the capture's atomics, the mute key onto
+    // this file's poll. No device restart, so a rebind lands between two frames.
+    CFG::Subscribe(::coop::config_registry::rows::voice_ptt_key, &OnVoicePttKeyRowChanged);
+    CFG::Subscribe(::coop::config_registry::rows::voice_whisper_key, &OnVoiceWhisperKeyRowChanged);
+    CFG::Subscribe(::coop::config_registry::rows::voice_mute_key, &OnVoiceMuteKeyRowChanged);
 }
 
 void Install(coop::net::Session* session) {

@@ -11,6 +11,7 @@
 
 #include "ue_wrap/actors/prop.h"
 #include "ue_wrap/core/call.h"
+#include "ue_wrap/core/class_census.h"
 #include "ue_wrap/core/fname_utils.h"
 #include "ue_wrap/core/game_thread.h"
 #include "ue_wrap/core/log.h"
@@ -19,6 +20,7 @@
 #include "ue_wrap/facts/function_row.h"
 
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <iterator>
@@ -117,10 +119,91 @@ std::string DescribeReelCase(void* rc) {
     return buf;
 }
 
+// The mining frame's record fields, for the logs: the seated GPUs (its `gpus` TArray's count)
+// and the points it has accumulated. Both offsets are resolved on the frame's own class and kept;
+// a field that does not resolve reads as a question mark, which is a log shape, never a lane gate.
+int32_t g_gpusOff = -1, g_pointsOff = -1;
+
+std::string DescribeMiner(void* miner) {
+    void* cls = R::ClassOf(miner);
+    if (!cls) return "?";
+    if (g_gpusOff < 0) {
+        g_gpusOff   = R::FindPropertyOffset(cls, L"gpus");
+        g_pointsOff = R::FindPropertyOffset(cls, L"accumulatedPoints");
+    }
+    if (g_gpusOff < 0 && g_pointsOff < 0) return "?";
+    const char* b = reinterpret_cast<const char*>(miner);
+    char buf[80];
+    // A TArray's count sits at +4 (data pointer, then Num, then Max); the walk the count
+    // justifies is the receiver's business, and a log must not cost one.
+    const int32_t gpus = g_gpusOff >= 0
+        ? *reinterpret_cast<const int32_t*>(b + g_gpusOff + 4) : -1;
+    if (g_gpusOff >= 0 && g_pointsOff >= 0)
+        std::snprintf(buf, sizeof(buf), "gpus=%d points=%.0f", gpus,
+                      *reinterpret_cast<const float*>(b + g_pointsOff));
+    else if (g_gpusOff >= 0)
+        std::snprintf(buf, sizeof(buf), "gpus=%d", gpus);
+    else
+        std::snprintf(buf, sizeof(buf), "points=%.0f",
+                      *reinterpret_cast<const float*>(b + g_pointsOff));
+    return buf;
+}
+
+// The dug hole's record fields, for the logs: `matType` (the ground the hole went into) and
+// whether the hole holds a plant (its `plant` object reference is set). Offsets resolved on the
+// hole's own class and kept; a field that does not resolve reads as a question mark.
+int32_t g_matTypeOff = -1, g_plantOff = -1;
+
+std::string DescribeHole(void* hole) {
+    void* cls = R::ClassOf(hole);
+    if (!cls) return "?";
+    if (g_matTypeOff < 0) {
+        g_matTypeOff = R::FindPropertyOffset(cls, L"matType");
+        g_plantOff   = R::FindPropertyOffset(cls, L"plant");
+    }
+    if (g_matTypeOff < 0 && g_plantOff < 0) return "?";
+    const char* b = reinterpret_cast<const char*>(hole);
+    char buf[64];
+    if (g_matTypeOff >= 0 && g_plantOff >= 0)
+        std::snprintf(buf, sizeof(buf), "matType=%d plant=%d",
+                      *reinterpret_cast<const uint8_t*>(b + g_matTypeOff),
+                      *reinterpret_cast<void* const*>(b + g_plantOff) != nullptr ? 1 : 0);
+    else if (g_plantOff >= 0)
+        std::snprintf(buf, sizeof(buf), "plant=%d",
+                      *reinterpret_cast<void* const*>(b + g_plantOff) != nullptr ? 1 : 0);
+    else
+        std::snprintf(buf, sizeof(buf), "matType=%d",
+                      *reinterpret_cast<const uint8_t*>(b + g_matTypeOff));
+    return buf;
+}
+
 // The watched classes. `relook`: the drive box's look does not follow its record and is
-// re-derived on receipt (RefreshLook); the reel case's upd() reads `lid` itself.
+// re-derived on receipt (RefreshLook); the reel case's upd() reads `lid` itself, and the mining
+// frame's loadData applies its own record the same way, so neither re-derives anything.
+//
+// prop_miner_C is the mining frame -- the GPU/cooler farm the shop sells GPUs and coolers for
+// (its `gpus`, its `upg_gpu`/`upg_slots`/`upg_fans`, its `accumulatedPoints`). Every mutation a
+// player drives (seating and taking hardware, the upgrade, the repair) and every tick the game
+// itself makes (the points it accumulates while it runs, the fans, the overheat) ends in its own
+// upd(), the same convention the drive box and the reel case keep -- so one watch on upd()
+// republishes the record at the game's own cadence, event-driven, where the record poll used to
+// re-read it once a second from a rotating slice.
 UE_FACT_FN(kRowUpdBox,     "prop_record_refresh", L"prop_box_C",     L"upd", Dispatch);
 UE_FACT_FN(kRowUpdReelbox, "prop_record_refresh", L"prop_reelbox_C", L"upd", Dispatch);
+UE_FACT_FN(kRowUpdMiner,   "prop_record_refresh", L"prop_miner_C",   L"upd", Dispatch);
+
+// The dug hole (Adirthole_C, the shovel's holes; the buried-item and rake variants inherit its
+// bodies, and a watch on the base's own UFunction reaches an inherited dispatch the same way the
+// camera's use reaches a subclass). A hole has no upd() of its own: its record changes under the
+// verbs a player's E-press and the game's own item flow run -- the use (planting a seed,
+// collecting, digging the item up), its latent tail, the dig-up, and the buried-item process --
+// so those four verbs are watched Declared on the hole's class, and each publishes the record the
+// verb left. The growth the seed then makes is the plant prop's own record, whose class the
+// record poll still names.
+UE_FACT_FN(kRowHoleUse,      "prop_record_refresh", L"dirthole_C", L"playerUsedOn",       Declared);
+UE_FACT_FN(kRowHoleUseDelay, "prop_record_refresh", L"dirthole_C", L"playerUsedOn_delay", Declared);
+UE_FACT_FN(kRowHoleDigUp,    "prop_record_refresh", L"dirthole_C", L"digUp",              Declared);
+UE_FACT_FN(kRowHoleBury,     "prop_record_refresh", L"dirthole_C", L"processBuriedItem",  Declared);
 
 struct Watched {
     const ue_wrap::facts::Function* row;
@@ -131,6 +214,11 @@ struct Watched {
 constexpr Watched kWatched[] = {
     { &kRowUpdBox,     0x44424F58, true,  &DescribeBox },       // 'DBOX'
     { &kRowUpdReelbox, 0x5242584F, false, &DescribeReelCase },  // 'RBXO'
+    { &kRowUpdMiner,   0x4D494E52, false, &DescribeMiner },     // 'MINR'
+    { &kRowHoleUse,      0x44485531, false, &DescribeHole },     // 'DHU1'
+    { &kRowHoleUseDelay, 0x44485532, false, &DescribeHole },     // 'DHU2'
+    { &kRowHoleDigUp,    0x44484455, false, &DescribeHole },     // 'DHDU'
+    { &kRowHoleBury,     0x44484249, false, &DescribeHole },     // 'DHBI'
 };
 // The UFunction each watch was armed on, so a re-armed one can be recognised. A world change can
 // re-create a Blueprint class and its functions (127 were in a same-process rejoin; these two kept
@@ -212,8 +300,8 @@ void OnUpdPost(const sg::Call& call) {
     // so the lid, the contents and the repaint all land together.
     if (coop::prop_save_data::Publish(s, actor, key)) {
         ++g_cPublished;
-        UE_LOGI("prop_record_refresh: published %ls key='%ls' %s (%s)", w->row->Class(), key.c_str(),
-                w->describe(actor).c_str(),
+        UE_LOGI("prop_record_refresh: published %ls::%ls key='%ls' %s (%s)", w->row->Class(),
+                w->row->Name(), key.c_str(), w->describe(actor).c_str(),
                 s->role() == coop::net::Role::Client ? "client intent" : "host broadcast");
     }
 }
@@ -234,7 +322,32 @@ void Install(coop::net::Session* session) {
     for (size_t i = 0; i < std::size(kWatched); ++i) {
         const Watched& w = kWatched[i];
         void* cls = R::FindClass(w.row->Class());
-        if (!cls) { s_retry = 60; continue; }  // not loaded yet -- a second of frames from now
+        if (!cls) {
+            // Not loaded yet -- a second of frames from now. Said once per row, so a class this
+            // build never loads by this name is one log read, not silence.
+            static bool s_saidMissingCls[std::size(kWatched)] = {};
+            if (!s_saidMissingCls[i]) {
+                s_saidMissingCls[i] = true;
+                UE_LOGW("prop_record_refresh: class %ls is not loaded (yet?) -- its %ls watch waits "
+                        "for the class to load", w.row->Class(), w.row->Name());
+            }
+            // The mining frame and the holes are this fork's additions, their class names not
+            // measured on the reference build: if the name spells otherwise, the census names what
+            // the build does carry, once in 30 s while the miss goes on.
+            if (w.row == &kRowUpdMiner || w.row == &kRowHoleUse) {
+                static std::chrono::steady_clock::time_point s_next{};
+                const auto now = std::chrono::steady_clock::now();
+                if (now >= s_next) {
+                    s_next = now + std::chrono::seconds(30);
+                    static const wchar_t* const kSubs[] = {L"miner", L"hole"};
+                    UE_LOGW("prop_record_refresh: census of loaded classes matching 'miner'/'hole' "
+                            "(the family's class loads with its first instance):");
+                    ue_wrap::class_census::LogMatchingClasses("prop_record_refresh", kSubs, 2);
+                }
+            }
+            s_retry = 60;
+            continue;
+        }
         // The memoised lookup holds its answer by slot and serial, so a class re-created by a world
         // load answers with the NEW function and the comparison below re-arms on it.
         void* fn = R::FindDispatchFunctionCached(cls, w.row->Name());
@@ -243,16 +356,17 @@ void Install(coop::net::Session* session) {
             static bool s_saidMissing[std::size(kWatched)] = {};
             if (!s_saidMissing[i]) {
                 s_saidMissing[i] = true;
-                UE_LOGW("prop_record_refresh: %ls::upd UFunction not found -- its record will only "
-                        "travel on its birth paths (an in-place change stays local)", w.row->Class());
+                UE_LOGW("prop_record_refresh: %ls::%ls UFunction not found -- its record will only "
+                        "travel on its birth paths (an in-place change stays local)", w.row->Class(),
+                        w.row->Name());
             }
             s_retry = 60;
             continue;
         }
         // The script gate, not a ProcessEvent observer: the prop calls its own upd() from inside
         // its Blueprint, a route that never reaches ProcessEvent, and an observer there saw
-        // nothing. The watch is on the exact UFunction rather than on the name `upd`, which half
-        // the props in the game declare.
+        // nothing. The watch is on the exact UFunction rather than on the name -- `upd` alone is
+        // declared by half the props in the game, and the hole family's verbs by most of them.
         if (g_watchedFn[i] && g_watchedFn[i].Fn() != fn)
             sg::Unwatch(g_watchedFn[i], w.tag, nullptr, &OnUpdPost);  // the world that owned it is gone
         const ue_wrap::facts::Resolved armed = ue_wrap::facts::Resolve(*w.row);
@@ -264,14 +378,16 @@ void Install(coop::net::Session* session) {
             static bool s_saidRefused = false;
             if (!s_saidRefused) {
                 s_saidRefused = true;
-                UE_LOGW("prop_record_refresh: script-gate watch on %ls::upd refused -- retrying", w.row->Class());
+                UE_LOGW("prop_record_refresh: script-gate watch on %ls::%ls refused -- retrying",
+                        w.row->Class(), w.row->Name());
             }
             continue;
         }
         const bool rearm = static_cast<bool>(g_watchedFn[i]);
         g_watchedFn[i] = armed;
-        UE_LOGI("prop_record_refresh: %hs %ls::upd -- it republishes its own save record on "
-                "every in-place change", rearm ? "re-armed on" : "watching", w.row->Class());
+        UE_LOGI("prop_record_refresh: %hs %ls::%ls -- it republishes its own save record on "
+                "every in-place change", rearm ? "re-armed on" : "watching", w.row->Class(),
+                w.row->Name());
     }
 }
 

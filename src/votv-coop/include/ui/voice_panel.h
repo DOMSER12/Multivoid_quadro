@@ -18,6 +18,11 @@ void Close();
 bool IsOpen();
 void Render();
 
+// Render thread, while the panel draws: true while a key-rebind capture is armed. The overlay's
+// per-frame input-capture publish adds it to the text-capture gate, so a keystroke a rebind is
+// waiting for never also fires the game's or the voice's own key polls.
+bool IsCapturingKey();
+
 // Render thread, once per drawn frame: a slider that was being dragged when the panel closed
 // commits its last previewed value to its row.
 void CommitAbandonedDrag();

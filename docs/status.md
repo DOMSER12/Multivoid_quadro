@@ -34,6 +34,8 @@ host validates and commits contested writes), `local` (never shared).
 | Chip piles and clumps | the grab, carry, throw and re-pile cycle, and a broom's sweep | host with client intents | snapshot, a spawn-time bind, and a bounded hold for a pile the save load has not reached; a clump rolling at the join arrives as the pile it lands as | works |
 | Trash-bits piles | the counter pair | presser and host | snapshot | built |
 | Containers | open and close, a dragged lid's pose (the held-item stream), contents (a slice of the host's object stack) | presser; host for contents | snapshot | works, two known breaks; a dragged lid is built, not yet proven on two peers |
+| Dug holes and the mining frame | the in-place save record at its own verb: the mining frame's `upd` (its seated hardware, its upgrades, the points the game itself accumulates while it runs) and the dug hole's use, dig-up and buried-item verbs | presser-authored; the host validates a client's record and re-publishes canonically | snapshot | built |
+| Record poll (the plant and garden families) | the in-place save record of the classes the `sync.poll_patterns` row names, hashed and republished on change | presser-authored; the host validates a client's record and re-publishes canonically | snapshot | built |
 | NPCs | spawn, despawn, pose, state for the generic creatures | host | snapshot | works |
 | Kerfur | the prop-to-NPC conversion cycle, per-kerfur skins | host | snapshot plus adoption | works |
 | Owner-entity creatures | a creature whose AI reads the local player is owned per peer and mirrored to the rest | peer | keepalive | built |
@@ -78,6 +80,7 @@ host validates and commits contested writes), `local` (never shared).
 | Shop orders | the client names a row, the host performs and prices it; the delivery queue is the host's, mirrored | arbiter | a reset and every queued order | built |
 | ATV | the driver authors the pose; a non-driving peer runs the rig natively and is steered; condition (tyres, fuel, health) travels, and a non-syncer's own refuel or repair is reported and merged; `/atvrespawn` re-mints a rig full beside the host | driver, host for the rest | snapshot | tested; eject and configuration intents not built |
 | Sleep | each peer's rest state and the host's sleeping flag | each peer for its own state; the host relays | the host's flag and every peer not awake | built |
+| The base cargo lift | the lift's target end (`dir`), sent at the press verb the lift's buttons all dispatch; the lift's own Blueprint animates the move from it | host | snapshot (the end; a join mid-move converges at the arrival end) | built |
 | Player inventory | per-peer, persisted by the host per player identity; the contents never cross the wire | local; host stores | seeded before the world | tested |
 
 ## Enforced without a packet

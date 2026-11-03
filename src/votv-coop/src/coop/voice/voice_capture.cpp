@@ -71,6 +71,8 @@ bool Capture::Start(const CaptureConfig& cfg) {
     cfg_ = cfg;
     gainDb_.store(cfg.gainDb, std::memory_order_relaxed);
     thresholdDb_.store(cfg.thresholdDb, std::memory_order_relaxed);
+    pttVk_.store(cfg.pttVk, std::memory_order_relaxed);
+    whisperVk_.store(cfg.whisperVk, std::memory_order_relaxed);
     toneMode_ = cfg.testTone;
 
     int err = 0;
@@ -252,13 +254,16 @@ void Capture::ProcessFrame(const int16_t* samples) {
     const bool keysLive = foreground &&
         (toneMode_ || !ui::input_focus::IsOverlayCapturingText());
     const bool whisperHeld =
-        keysLive && cfg_.whisperVk != 0 && (GetAsyncKeyState(cfg_.whisperVk) & 0x8000) != 0;
+        keysLive && whisperVk_.load(std::memory_order_relaxed) != 0 &&
+        (GetAsyncKeyState(whisperVk_.load(std::memory_order_relaxed)) & 0x8000) != 0;
     bool wantActive = false;
     if (!muted_.load(std::memory_order_relaxed) && foreground) {
         if (cfg_.activationMode) {
             wantActive = db >= thresholdDb_.load(std::memory_order_relaxed) || whisperHeld;
         } else {
-            wantActive = (keysLive && (GetAsyncKeyState(cfg_.pttVk) & 0x8000) != 0) || whisperHeld;
+            const int pttVk = pttVk_.load(std::memory_order_relaxed);
+            wantActive = (keysLive && pttVk != 0 &&
+                          (GetAsyncKeyState(pttVk) & 0x8000) != 0) || whisperHeld;
         }
     }
     if (wantActive) {

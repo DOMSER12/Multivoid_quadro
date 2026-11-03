@@ -11,13 +11,16 @@
 #include "ue_wrap/actors/swinger.h"
 #include "ue_wrap/devices/appliance.h"
 #include "ue_wrap/devices/door_box.h"
+#include "ue_wrap/devices/elevator.h"
 #include "ue_wrap/devices/garage.h"
 #include "ue_wrap/devices/lightswitch.h"
 #include "ue_wrap/devices/security_camera.h"
 #include "ue_wrap/facts/function_row.h"
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
+#include <string>
 
 namespace coop::toggle_verbs {
 namespace {
@@ -40,6 +43,10 @@ UE_FACT_FN(kRowCameraActionOptionIndex, "toggle_verbs", L"prop_camera_bad_C", L"
 UE_FACT_FN(kRowCameraUpd, "toggle_verbs", L"prop_camera_bad_C", L"upd", Declared);
 UE_FACT_FN(kRowCameraUpdState, "toggle_verbs", L"prop_camera_bad_C", L"updState", Declared);
 UE_FACT_FN(kRowCursedReceiveTick, "toggle_verbs", L"prop_camera_cursed_C", L"ReceiveTick", Declared);
+// The base cargo lift's press: its buttons (its own components) all dispatch actionOptionIndex on
+// the lift actor, Declared on the lift's class. The lift channel is HostAuth, so the edge sends
+// from the host alone; a client's press is refused upstream (coop/interactables/elevator_sync).
+UE_FACT_FN(kRowLiftAction, "toggle_verbs", L"cargoLift_C", L"actionOptionIndex", Declared);
 
 struct Row {
     const ue_wrap::facts::Function* verb;
@@ -76,6 +83,8 @@ const Row kRows[] = {
       &coop::interactable_sync::OnCameraVerb },
     { &kRowCursedReceiveTick, 0x43435254 /*'CCRT'*/, "the cursed camera's tick", &ue_wrap::security_camera::IsCameraClass,
       &coop::interactable_sync::OnCameraVerb },
+    { &kRowLiftAction, 0x454C5653 /*'ELVS'*/, "the cargo lift's press", &ue_wrap::elevator::IsLift,
+      &coop::interactable_sync::OnElevatorVerb },
 };
 constexpr int kRowCount = static_cast<int>(sizeof(kRows) / sizeof(kRows[0]));
 
@@ -126,9 +135,18 @@ void Tick() {
     sg::ResolvePendingNames();
     if (g_settled) return;
     int live = 0, pending = 0;
+    std::wstring pendingNames;
     for (int i = 0; i < kRowCount; ++i) {
         if (g_reg[i] == Reg::Pending) ++pending;
         else if (g_reg[i] == Reg::Registered && sg::NameWatchLive(*kRows[i].verb, kRows[i].tag)) ++live;
+        else if (g_reg[i] == Reg::Registered) {
+            // Registered, its names not resolved yet: the class may still be loading, or the build
+            // spells it otherwise. Named here, so a wrong class name is a log read, not silence.
+            if (!pendingNames.empty()) pendingNames += L", ";
+            pendingNames += kRows[i].verb->Class();
+            pendingNames += L"::";
+            pendingNames += kRows[i].verb->Name();
+        }
     }
     if (live == kRowCount) {
         g_settled = true;
@@ -137,6 +155,17 @@ void Tick() {
         g_settled = true;
         UE_LOGE("[TOGGLE-VERB] %d of %d toggle verb gates are dead (refused, or resolved into a full table)",
                 kRowCount - live, kRowCount);
+    } else {
+        // Still waiting on names: say which, once in 45 s, so a class the build never loads by
+        // this name is visible instead of holding the settle forever in silence.
+        static std::chrono::steady_clock::time_point s_next{};
+        const auto now = std::chrono::steady_clock::now();
+        if (!pendingNames.empty() && now >= s_next) {
+            s_next = now + std::chrono::seconds(45);
+            UE_LOGW("[TOGGLE-VERB] %d of %d watch(es) not live yet (class not loaded yet, refused, "
+                    "or the name spells otherwise): %ls",
+                    kRowCount - live, kRowCount, pendingNames.c_str());
+        }
     }
 }
 

@@ -122,7 +122,10 @@ constexpr bool IsClientRelayableReliableKind(ReliableKind k) {
     case ReliableKind::PropStickState:    // a client's wall-attachable stick
     // DoorState is not relayable: the host authors it, and a client's own door verbs reach the host
     // as DoorVerbIntent, an intent addressed to the host alone. PowerControlState likewise: a press
-    // reaches the host alone and the host authors the canonical.
+    // reaches the host alone and the host authors the canonical. The base cargo lift is the same
+    // pair one device over: ElevatorState is host-authored, and a client's press rides
+    // ElevatorIntent, addressed to the host alone; neither is listed here (the default), and the
+    // authorship table (client_authorship.h) refuses a client's ElevatorState at the receive edge.
     case ReliableKind::LightState:
     case ReliableKind::ContainerState:
     case ReliableKind::GarageDoorState:   // symmetric
